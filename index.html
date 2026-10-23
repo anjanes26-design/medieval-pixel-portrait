@@ -484,7 +484,8 @@ function generate(seed, ov){
   const shape = ov.shape || shapeBase;
   const cx = 24 + (chance(0.35) ? ri(-1, 1) : 0);
   const cy = 17 + ri(-1, 1);
-  const rx = gender === 'F' ? ri(7, 8) : ri(8, 9);
+  // 脸宽：男 8-10、女 6-8，拉开 2px 的差距，剪影一眼可辨
+  const rx = gender === 'F' ? ri(6, 8) : ri(8, 10);
   const ry = ri(10, 11) + (shape === 'long' ? 1 : 0);
 
   let skin = pick(SKINS);
@@ -612,8 +613,10 @@ function generate(seed, ov){
   /* ---- 1. 后发（在身体之下） ---- */
   const hairBack = (c, d) => {
     if (hairStyle === 'long' || hairStyle === 'wavy'){
-      for (let y = cy - 5; y <= cy + 15; y++){
-        const w = (y < cy) ? rx + 2 : rx + 1 + Math.round((y - cy) * 0.08);
+      // 女性：长发更宽更长，垂到画面底，与男性短发形成强对比
+      const lenY = gender === 'F' ? H - 1 : cy + 9;
+      for (let y = cy - 5; y <= lenY; y++){
+        const w = (y < cy) ? rx + 2 : rx + 1 + Math.round((y - cy) * 0.1);
         for (let x = cx - w; x <= cx + w; x++){
           if (Math.abs(x - cx) < rx - 1) continue;   // 只留两侧
           if (hairStyle === 'wavy' && (y % 5 === 0 || y % 5 === 4) && Math.abs(x - cx) > rx) continue;
@@ -632,18 +635,20 @@ function generate(seed, ov){
       }
     }
     if (hairStyle === 'ponytail'){
-      for (let y = cy - 6; y <= cy + 15; y++){
-        const t = (y - (cy - 6)) / 21;
+      const lenY = gender === 'F' ? H - 2 : cy + 15;
+      for (let y = cy - 6; y <= lenY; y++){
+        const t = (y - (cy - 6)) / (lenY - cy + 6);
         const px = cx + rx + 1 + Math.round(Math.sin(t * 2.4) * 1.8);
         const w = t < 0.35 ? 3 : (t < 0.7 ? 2 : 1);
         for (let k = 0; k < w; k++) g.set(px + k, y, k === w - 1 ? d : c);
       }
     }
     if (hairStyle === 'twin'){
-      // 编辫：左右各一条，按 2px 周期左右错位，看起来像麻花辫
+      // 编辫：左右各一条，按 2px 周期左右错位，看起来像麻花辫；女性垂更长
+      const lenY = gender === 'F' ? cy + 18 : cy + 14;
       for (const sgn of [-1, 1]){
-        for (let y = cy + 1; y <= cy + 14; y++){
-          const t = (y - cy - 1) / 13;
+        for (let y = cy + 1; y <= lenY; y++){
+          const t = (y - cy - 1) / (lenY - cy - 1);
           const wob = (y % 4 < 2 ? 1 : 0);
           const px = cx + sgn * (rx + 1 + Math.round(Math.sin(t * 2.2) * 1.2) + wob);
           const w = t < 0.5 ? 2 : 1;
@@ -685,7 +690,8 @@ function generate(seed, ov){
   else if (['beggar', 'bard', 'nun', 'alchemist'].includes(arch.id)) buildMult = 0.92;
   if (ov.build === 'slim') buildMult = 0.9;
   else if (ov.build === 'broad') buildMult = 1.16;
-  const buildW = (gender === 'F' ? 0.86 + r() * 0.12 : 0.96 + r() * 0.18) * buildMult;
+  // 肩宽：女 0.72-0.84、男 1.0-1.22，差距加大
+  const buildW = (gender === 'F' ? 0.72 + r() * 0.12 : 1.0 + r() * 0.22) * buildMult;
   // 脖子
   for (let y = cy + ry - 4; y <= neckTop + 2; y++)
     for (let x = cx - neckW; x <= cx + neckW; x++)
@@ -694,7 +700,7 @@ function generate(seed, ov){
   const shirtHW = y => {
     const t = Math.min(1, Math.max(0, (y - neckTop) / (H - neckTop)));
     let w = (4 + 18 * Math.pow(t, 0.4)) * buildW;
-    if (gender === 'F') w *= 0.9 + 0.2 * t * t;   // 收腰 + 裙摆
+    if (gender === 'F') w *= 0.82 + 0.34 * t * t;   // 明显收腰 + 裙摆外扩
     return Math.round(w);
   };
 
@@ -837,6 +843,10 @@ function generate(seed, ov){
       if (rightGap <= 1) c = skinD;
       else if (rightGap === 2 && gender === 'M') c = mixHex(skin, skinD, 0.45);
       if (leftGap === 0) c = skinL;
+      // 女性腮红：也只有养尊处优的才有，且要与口红档一致
+      const BLUSH_RICH = ['noble', 'merchant', 'bard'];
+      if (gender === 'F' && BLUSH_RICH.includes(arch.id) && y === cy + 2 && (leftGap === 2 || rightGap === 3) && c === skin)
+        c = mixHex(skin, '#d98a80', 0.3);
       if (y >= cy + ry - 1) c = (c === skin ? skinD : c);
       else if (y === cy + ry - 2 && c === skin) c = mixHex(skin, skinD, 0.5);
       g.set(x, y, c);
@@ -997,9 +1007,11 @@ function generate(seed, ov){
     }
   }
   if (age > 0.55) for (let x = 0; x < ew; x++){ g.set(exL + x, eyeY + eh, skinD); g.set(exR + x, eyeY + eh, skinD); }
-  // 眉毛：4px 连续线，中间拱起
+  // 眉毛：4px 连续线，中间拱起；女性眉更细更淡
   const browShape = BROW_SHAPES[browStyle];
-  const browC = skinDark ? shade(hairC, -0.18) : mixHex(hairC, skinD, 0.35);
+  const browC = gender === 'F'
+    ? (skinDark ? shade(hairC, -0.05) : mixHex(hairC, skinD, 0.55))
+    : (skinDark ? shade(hairC, -0.18) : mixHex(hairC, skinD, 0.35));
   const browY = eyeY - 3;
   const bw = browShape.length;
   for (let i = 0; i < bw; i++){
@@ -1029,13 +1041,28 @@ function generate(seed, ov){
   // 嘴
   const mouthY = cy + 6;
   const mw = ri(2, 4);
-  const lipC = skinDark ? mixHex(skinD, '#c8696a', 0.62) : mixHex(skinD, '#a3484a', 0.5);
+  // 口红只属于涂得起它的女性：按身份分档
+  // 艳丽=贵族/商人妻；暗色=女巫/炼金术士/吟游诗人；素颜=贫苦与神职
+  const LIP_RICH = ['noble', 'merchant'];
+  const LIP_DARK = ['witch', 'alchemist', 'bard'];
+  const lipTier = gender !== 'F' ? 'none'
+    : LIP_RICH.includes(arch.id) ? 'rich'
+    : LIP_DARK.includes(arch.id) ? 'dark' : 'none';
+  const lipC = lipTier === 'rich'
+    ? mixHex(skinDark ? '#a83a4a' : '#c43a4a', skinD, skinDark ? 0.15 : 0.08)
+    : lipTier === 'dark'
+    ? mixHex('#5a2a3a', skinD, 0.25)
+    : (skinDark ? mixHex(skinD, '#c8696a', 0.62) : mixHex(skinD, '#a3484a', 0.5));
   const mouthX = cx - Math.floor(mw / 2);
   const hline = (y, x0, x1, c) => { for (let x = x0; x <= x1; x++) g.set(x, y, c); };
   switch (mouthStyle){
-    case 'neutral': hline(mouthY, mouthX, mouthX + mw - 1, lipC); break;
+    case 'neutral':
+      hline(mouthY, mouthX, mouthX + mw - 1, lipC);
+      if (lipTier === 'rich') hline(mouthY + 1, mouthX + 1, mouthX + mw - 2, shade(lipC, -0.22));  // 下唇
+      break;
     case 'smile':
       hline(mouthY, mouthX, mouthX + mw - 1, lipC);
+      if (lipTier === 'rich') hline(mouthY + 1, mouthX + 1, mouthX + mw - 2, shade(lipC, -0.22));
       g.set(mouthX - 1, mouthY - 1, lipC); g.set(mouthX + mw, mouthY - 1, lipC);
       break;
     case 'grin':
@@ -1059,6 +1086,7 @@ function generate(seed, ov){
     case 'lips':
       hline(mouthY, mouthX, mouthX + mw - 1, lipC);
       hline(mouthY + 1, mouthX, mouthX + mw - 1, shade(lipC, -0.2));
+      if (lipTier !== 'none'){ hline(mouthY - 1, mouthX + 1, mouthX + mw - 2, shade(lipC, 0.18)); }  // 饱满上唇
       break;
   }
 
