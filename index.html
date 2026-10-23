@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314121b'/%3E%3Crect x='4' y='3' width='8' height='7' fill='%23e8b44f'/%3E%3Crect x='6' y='5' width='1' height='2' fill='%2314121b'/%3E%3Crect x='9' y='5' width='1' height='2' fill='%2314121b'/%3E%3C/svg%3E">
+<title>中世纪像素人物生成器</title>
+<style>
+  :root{
+    --bg:#14121b; --panel:#1d1a26; --panel2:#262232; --line:#332e42;
+    --fg:#ece8f5; --muted:#8f88a6; --accent:#e8b44f; --accent2:#7fd1b9;
+    --radius:10px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f2efe8; --panel:#fffdf8; --panel2:#f0ece2; --line:#ddd6c8;
+           --fg:#211d17; --muted:#7a7263; --accent:#b97d15; --accent2:#2f7f68; }
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:24px;
+  }
+  .app{
+    display:grid; grid-template-columns:auto 320px; gap:22px;
+    align-items:start; max-width:820px; width:100%;
+  }
+  .topbar{
+    grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between;
+    gap:12px; margin-bottom:-6px;
+  }
+  .topbar select{
+    width:auto; min-width:118px; font-size:12.5px; padding:6px 24px 6px 10px;
+    background-color:var(--panel); border-color:var(--line);
+  }
+  @media (max-width:720px){
+    .app{ grid-template-columns:1fr; }
+    .side{ order:2; }
+    .topbar{ margin-bottom:0; }
+  }
+
+  /* ---- 舞台 ---- */
+  .stage{ display:flex; flex-direction:column; gap:14px; }
+  .headline{ font-size:15px; font-weight:600; letter-spacing:.02em; display:flex; align-items:baseline; gap:9px; }
+  .headline span{ font-size:11.5px; font-weight:400; color:var(--muted); letter-spacing:.04em; }
+  .frame{
+    position:relative; width:100%; max-width:400px; aspect-ratio:1;
+    background:
+      linear-gradient(45deg,#0000 25%,#ffffff0d 25%,#ffffff0d 50%,#0000 50%,#0000 75%,#ffffff0d 75%)
+      0 0/24px 24px,
+      linear-gradient(45deg,#0000 25%,#ffffff0d 25%,#ffffff0d 50%,#0000 50%,#0000 75%,#ffffff0d 75%)
+      12px 12px/24px 24px,
+      var(--panel);
+    border-radius:var(--radius); border:1px solid var(--line);
+    padding:12px; display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  #view{ width:100%; height:100%; image-rendering:pixelated; display:block; }
+  .grid-on #grid{ display:block; }
+  #grid{
+    position:absolute; inset:12px; pointer-events:none; display:none;
+    background-size:calc(100% / 48) calc(100% / 48);
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.09) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.09) 1px, transparent 1px);
+  }
+  @media (prefers-color-scheme: light){
+    #grid{
+      background-image:
+        linear-gradient(to right, rgba(0,0,0,0.09) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0,0,0,0.09) 1px, transparent 1px);
+    }
+  }
+
+  .controls{ display:flex; gap:8px; flex-wrap:wrap; }
+  button{
+    font:inherit; font-size:14px; cursor:pointer; color:var(--fg);
+    background:var(--panel2); border:1px solid var(--line);
+    border-radius:8px; padding:9px 14px; transition:.12s;
+  }
+  button:hover{ border-color:var(--muted); transform:translateY(-1px); }
+  button:active{ transform:translateY(0); }
+  button.active{ background:var(--accent); color:#1a1408; border-color:transparent; font-weight:600; }
+  @media (prefers-color-scheme: light){ button.active{ color:#fff; } }
+  #roll{ background:var(--accent); color:#1a1408; border-color:transparent; font-weight:600; }
+  @media (prefers-color-scheme: light){ #roll{ color:#fff; } }
+  kbd{
+    font:inherit; font-size:10px; padding:1px 5px; border-radius:4px;
+    background:#0003; margin-left:6px; opacity:.75;
+  }
+
+  /* ---- 侧栏 ---- */
+  .side{ display:flex; flex-direction:column; gap:14px; }
+  .block{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:13px 14px; }
+  .label{ font-size:11px; letter-spacing:.14em; color:var(--muted); margin-bottom:8px; }
+  .seedrow{ display:flex; gap:6px; }
+  .seedrow input, input[type=text]{
+    flex:1; min-width:0; font:inherit; font-size:13px; font-family:var(--font-mono,ui-monospace,monospace);
+    background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+    border-radius:7px; padding:8px 10px;
+  }
+  input:focus{ outline:2px solid var(--accent2); outline-offset:-1px; }
+  .seedrow button{ padding:8px 12px; font-size:13px; }
+  .hint{ margin:8px 0 0; font-size:11px; color:var(--muted); line-height:1.5; }
+
+  /* 档案卡片 */
+  .profile-hero{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 12px; border-radius:7px;
+    background:var(--panel2); border:1px solid var(--line); margin-bottom:8px;
+  }
+  .profile-role{
+    font-size:15px; font-weight:700; color:var(--accent); letter-spacing:.02em;
+  }
+  .profile-badge{
+    font-size:11.5px; padding:2px 8px; border-radius:4px;
+    background:rgba(255,255,255,0.06); color:var(--muted); font-weight:500;
+  }
+  @media (prefers-color-scheme: light){
+    .profile-badge{ background:rgba(0,0,0,0.06); }
+  }
+  .profile-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:6px;
+  }
+  .profile-item{
+    background:var(--panel2); border:1px solid var(--line); border-radius:6px;
+    padding:6px 9px; font-size:12px;
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;
+  }
+  .profile-item span{ color:var(--muted); font-size:11px; flex:0 0 auto; }
+  .profile-item b{
+    font-weight:500; color:var(--fg); text-align:right;
+    min-width:0; overflow-wrap:anywhere;
+  }
+  .profile-item.wide{ grid-column:1 / -1; }
+
+  .recent{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+  .recent canvas{
+    width:100%; aspect-ratio:1; image-rendering:pixelated; border-radius:5px;
+    background:var(--panel2); border:1px solid var(--line); cursor:pointer;
+  }
+  .recent canvas:hover{ border-color:var(--accent); }
+  .recent canvas.on{ border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
+
+  /* ---- 定制面板 ---- */
+  .forge{ display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+  .field{ display:flex; flex-direction:column; gap:3px; }
+  .field.wide{ grid-column:1 / -1; }
+  .field > span{ font-size:10.5px; color:var(--muted); letter-spacing:.05em; }
+  select{
+    font:inherit; font-size:12px; color:var(--fg); width:100%;
+    background-color:var(--panel2); border:1px solid var(--line); border-radius:6px;
+    padding:6px 22px 6px 7px; cursor:pointer; appearance:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 12px) 50%,calc(100% - 8px) 50%;
+    background-size:4px 4px,4px 4px; background-repeat:no-repeat;
+  }
+  select:hover{ border-color:var(--muted); }
+  select:focus{ outline:2px solid var(--accent2); outline-offset:-1px; }
+  select:disabled{ opacity:.42; cursor:not-allowed; }
+  select.locked{
+    border-color:var(--accent2);
+    box-shadow:0 0 0 1px var(--accent2) inset;
+  }
+  .swatches{ display:flex; gap:5px; flex-wrap:wrap; padding:2px 0; }
+  .sw{
+    width:19px; height:19px; border-radius:5px; cursor:pointer; padding:0;
+    border:1px solid var(--line); transition:.12s;
+  }
+  .sw:hover{ transform:translateY(-1px); border-color:var(--muted); }
+  .sw[aria-pressed="true"]{ outline:2px solid var(--accent); outline-offset:1px; }
+  .forge-actions{ display:flex; gap:6px; margin-top:9px; }
+  .forge-actions button{ flex:1; padding:7px 10px; font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="headline">中世纪人物<span>随机像素肖像 · 48×48</span></div>
+    <select id="langSel" aria-label="Language" title="Language / 语言">
+      <option value="zh">中文</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+
+  <div class="stage">
+    <div class="frame" id="frame">
+      <canvas id="view" width="48" height="48"></canvas>
+      <div id="grid"></div>
+    </div>
+    <div class="controls">
+      <button id="roll">随机一个<kbd>空格</kbd></button>
+      <button id="save">下载 PNG</button>
+      <button id="copy">复制种子</button>
+      <button id="toggleGrid" title="显示像素网格">网格</button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="block" id="seedBlock">
+      <div class="label">种子 SEED</div>
+      <div class="seedrow">
+        <input id="seed" type="text" value="1024" spellcheck="false" autocomplete="off">
+        <button id="apply">生成</button>
+      </div>
+      <p class="hint">同一个种子永远长出同一个人。填数字或任意文字都行。</p>
+    </div>
+
+    <div class="block" id="profileBlock">
+      <div class="label">档案 PROFILE</div>
+      <div id="traits"></div>
+    </div>
+
+    <div class="block" id="forgeBlock">
+      <div class="label">定制 FORGE</div>
+      <div id="forge" class="forge"></div>
+      <div class="forge-actions">
+        <button id="forgeReset" disabled>清空全部锁定</button>
+      </div>
+    </div>
+
+    <div class="block" id="recentBlock">
+      <div class="label">最近 RECENT</div>
+      <div id="recent" class="recent"></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* =========================================================
+   48×48 像素人物生成器
+   思路：分层绘制 + 有限调色板 + 外轮廓描边
+   层序：背景 → 后发 → 身体/衣服 → 脸 → 前发 → 五官 → 配饰 → 描边
+   ========================================================= */
+const W = 48, H = 48;
+const OUTLINE = '#171120';
+
+/* ---------- 随机 ---------- */
+function hashStr(s){
+  s = String(s);
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ---------- 颜色 ---------- */
+function rgbOf(hex){
+  const n = parseInt(hex.slice(1), 16);
+  return [n >> 16 & 255, n >> 8 & 255, n & 255];
+}
+function hexOf(r, g, b){
+  return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+}
+// amt > 0 提亮，< 0 压暗
+function shade(hex, amt){
+  const [r, g, b] = rgbOf(hex);
+  const f = v => amt >= 0 ? v + (255 - v) * amt : v * (1 + amt);
+  return hexOf(f(r), f(g), f(b));
+}
+function mixHex(a, b, t){
+  const A = rgbOf(a), B = rgbOf(b);
+  return hexOf(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t);
+}
+function desat(hex, amt){
+  const [r, g, b] = rgbOf(hex);
+  const l = r * 0.299 + g * 0.587 + b * 0.114;
+  return hexOf(r + (l - r) * amt, g + (l - g) * amt, b + (l - b) * amt);
+}
+function luma(hex){
+  const [r, g, b] = rgbOf(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+function hslOf(hex){
+  const [r0, g0, b0] = rgbOf(hex);
+  const r = r0 / 255, g = g0 / 255, b = b0 / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d){
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  const l = (max + min) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  return { h, s, l };
+}
+// 把色值翻成中世纪染料档位，显示名交给 i18n
+function clothKey(hex){
+  const { h, s, l } = hslOf(hex);
+  if (s < 0.13) return l > 0.5 ? 'ash' : 'lime';
+  let n;
+  if (h < 14 || h >= 342) n = 'madder';
+  else if (h < 40) n = 'ochre';
+  else if (h < 64) n = 'weld';
+  else if (h < 104) n = 'moss';
+  else if (h < 160) n = 'pine';
+  else if (h < 205) n = 'slate';
+  else if (h < 262) n = 'woad';
+  else if (h < 302) n = 'ink';
+  else n = 'murrey';
+  if (l < 0.24) n = 'dark' + n; else if (l > 0.5) n = 'pale' + n;
+  return n;
+}
+function hairKey(hex){
+  const { h, s, l } = hslOf(hex);
+  if (s < 0.14) return l > 0.66 ? 'silver' : (l > 0.42 ? 'grizzled' : 'black');
+  if (l < 0.17) return 'black';
+  if (h >= 20 && h < 46) return l > 0.45 ? 'flaxen' : 'chestnut';
+  if (h < 20 || h >= 340) return l > 0.35 ? 'auburn' : 'deepchestnut';
+  if (h >= 46 && h < 78) return 'golden';
+  return 'brown';
+}
+function skinKey(hex){
+  const l = luma(hex);
+  if (l > 0.82) return 'fair';
+  if (l > 0.7) return 'lightwheat';
+  if (l > 0.57) return 'wheat';
+  if (l > 0.44) return 'olive';
+  if (l > 0.31) return 'deepbrown';
+  return 'ebony';
+}
+
+/* ---------- 画布 ---------- */
+class Grid{
+  constructor(w, h){ this.w = w; this.h = h; this.d = new Array(w * h).fill(null); }
+  set(x, y, c){
+    x = Math.round(x); y = Math.round(y);
+    if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
+    this.d[y * this.w + x] = c;
+  }
+  get(x, y){
+    if (x < 0 || y < 0 || x >= this.w || y >= this.h) return null;
+    return this.d[y * this.w + x];
+  }
+  line(x1, y1, x2, y2, c){
+    let dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+    let sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1, err = dx - dy;
+    for(;;){
+      this.set(x1, y1, c);
+      if (x1 === x2 && y1 === y2) break;
+      const e2 = err * 2;
+      if (e2 > -dy){ err -= dy; x1 += sx; }
+      if (e2 < dx){ err += dx; y1 += sy; }
+    }
+  }
+  // 外轮廓：不透明像素外扩 1px
+  outline(col){
+    const out = this.d.slice();
+    for (let y = 0; y < this.h; y++){
+      for (let x = 0; x < this.w; x++){
+        if (this.d[y * this.w + x]) continue;
+        if (this.get(x - 1, y) || this.get(x + 1, y) || this.get(x, y - 1) || this.get(x, y + 1))
+          out[y * this.w + x] = col;
+      }
+    }
+    this.d = out;
+  }
+}
+
+/* ---------- 素材表 ---------- */
+const SKINS = ['#f2cba6', '#e8b990', '#dda57a', '#c98a5e', '#b3774d', '#96603c', '#7a4a2c', '#5a3620',
+               '#dda57a', '#c98a5e', '#b3774d'];
+const HAIRS = ['#2a2230', '#33261c', '#402a1a', '#553420', '#76492a', '#9c6f37', '#cfa24c', '#a84a2a',
+               '#7a4a3a', '#5a4536', '#8a8378', '#b8b2a8'];
+/* 中世纪身份：决定衣着、头饰与配色，颜色取自天然染料（茜草红、菘蓝、苔绿、亚麻、赭石） */
+const ARCHETYPES = [
+  { id:'farmer',     cloth:['#8a7350','#7a6a4a','#6f5b3e','#9a8a62','#5f6b4a','#8a6a52'], kind:'tunic',    gear:['hood','straw','none','none','coif'] },
+  { id:'monk',       sex:'M', cloth:['#5a4a36','#4a3a2a','#6b5a42','#3f3528'],                 kind:'robe',     gear:['tonsure','cowl','none'] },
+  { id:'knight',     cloth:['#6b2f45','#3f4a7a','#4a6b3f','#7a3f2f','#5a3f6b'],                 kind:'chainmail',gear:['helmet','none'] },
+  { id:'noble',      cloth:['#6b2f45','#3f4a7a','#4a6b3f','#7a3f2f','#5a3f6b'],       kind:'doublet',  gear:['crown','circlet','veil','coif','none'] },
+  { id:'soldier',    cloth:['#6b5a42','#5a4a36','#7a6a4a'],                           kind:'gambeson', gear:['helmet','cap','none'] },
+  { id:'merchant',   cloth:['#5a6b4a','#7a5a3f','#4a5a6b','#6b4a3f'],                 kind:'tunic',    gear:['cap','hood','none'] },
+  { id:'bard',       cloth:['#6b3f6b','#7a4a2f','#4a6b6b','#8a5a2f'],               kind:'doublet',  gear:['cap','hood','wreath','none'] },
+  { id:'beggar',     cloth:['#5a5040','#4a4234','#6b5f4a'],                           kind:'rags',     gear:['none','hood','straw'] },
+  { id:'nun',        sex:'F', cloth:['#2f3540','#3a4050','#4a5060'],                           kind:'robe',     gear:['wimple','veil'] },
+  { id:'witch',      sex:'F', cloth:['#3a2f4a','#4a2f3f','#2f3a4a'],                           kind:'robe',     gear:['hood','straw','wreath'] },
+  { id:'blacksmith', cloth:['#5a4a3a','#4a3a2a','#6b5a4a'],                           kind:'tunic',    gear:['cap','none'], apron:true },
+  { id:'archer',     cloth:['#4a5a3f','#5a5a3a','#3f4a3a'],                           kind:'cloak',    gear:['hood','cap'] },
+  { id:'bishop',     sex:'M', cloth:['#6b2f45','#3a2f4a','#4a2f3f','#2f3a4a'],       kind:'robe',     gear:['mitre','cap'] },
+  { id:'pilgrim',    cloth:['#8a7a58','#6f6a52','#7a6a4a','#5f6b4a'],                 kind:'tunic',    gear:['hood','coif','straw','none'] },
+  { id:'alchemist',  cloth:['#2f4a44','#3a3a56','#4a3f5a','#2f3a4a'],               kind:'robe',     gear:['hood','cap','none'] },
+  { id:'fisher',     cloth:['#4a5a6b','#3f4a58','#5a6b6f','#6b6a52'],                 kind:'tunic',    gear:['straw','coif','none'] },
+  { id:'maid',       sex:'F', cloth:['#8a7350','#7a6a5a','#6f5b4a','#9a8a70'],       kind:'tunic',    gear:['coif','none'], apron:true },
+  { id:'mercenary',  cloth:['#6b4a3a','#5a4a42','#4a4a3f','#7a5a3a'],                 kind:'gambeson', gear:['helmet','cap','hood','none'] }
+];
+const EYE_COLORS = ['#231d33', '#2e4a40', '#324562', '#452c20', '#573c18', '#3d2230'];
+
+/* 年龄档位：存 key，显示交给 i18n */
+const AGE_VALUES = { child:0.12, youth:0.3, prime:0.5, middle:0.7, elder:0.88 };
+const AGE_KEYS = ['child', 'youth', 'prime', 'middle', 'elder'];
+
+/* 眼睛：d=上眼睑，p=虹膜，w=一点反光（1px，靠外上角，不是白框） */
+const EYE_PATTERNS = {
+  dot:    [['p']],
+  normal: [['p', 'p'], ['p', 'w']],
+  big:    [['p', 'p', 'p'], ['p', 'w', 'p']],
+  tall:   [['p', 'p'], ['p', 'p'], ['w', 'w']],
+  narrow: [['p', 'p']],
+  sharp:  [['p', 'p'], [' ', 'p']]
+};
+
+/* 眉毛：每侧 4px，数字是相对基准行向上抬的像素数 */
+const BROW_SHAPES = {
+  flat:   [0, 0, 0, 0],
+  arch:   [0, 1, 1, 0],
+  thick:  [0, 1, 1, 0],
+  angry:  [1, 0, 0, 0],
+  thin:   [0, 1, 0],
+  worry:  [1, 1, 0, 0]
+};
+const HAIR_M = ['buzz', 'short', 'short', 'sidepart', 'fringe', 'curly',
+                'receding', 'bald', 'long', 'ponytail', 'afro', 'bun'];
+const HAIR_F = ['long', 'long', 'wavy', 'wavy', 'twin', 'twin', 'bob', 'ponytail',
+                'bun', 'fringe', 'curly', 'afro', 'short'];
+/* ---------- 头部轮廓 ---------- */
+function headHW(y, cy, rx, ry, shape){
+  const t = (y - cy) / ry;
+  if (t < -1 || t > 1) return -1;
+  let hw = rx * Math.sqrt(Math.max(0, 1 - t * t));
+  if (shape === 'square'){
+    if (t > 0.15) hw = Math.max(hw, rx * (0.95 - 0.18 * (t - 0.15)));
+  } else if (shape === 'pointed'){
+    if (t > 0) hw *= 1 - 0.62 * t * t;
+  } else if (shape === 'heart'){
+    if (t > 0.05) hw *= 1 - 0.95 * (t - 0.05) * (t - 0.05);
+  } else if (shape === 'long'){
+    hw *= 0.88;
+  } else if (shape === 'wide'){
+    hw *= 1.07;
+  }
+  return Math.round(hw);
+}
+function ellipseHW(y, cy, rx, ry){
+  const t = (y - cy) / ry;
+  if (Math.abs(t) > 1) return -1;
+  return Math.round(rx * Math.sqrt(1 - t * t));
+}
+function fillHead(g, cx, cy, rx, ry, shape, color, exp, lim){
+  for (let y = cy - ry - exp; y <= cy + ry + exp; y++){
+    const hw = headHW(y, cy, rx, ry, shape);
+    if (hw < 0) continue;
+    for (let x = cx - hw - exp; x <= cx + hw + exp; x++){
+      if (lim && lim(x, y)) continue;
+      g.set(x, y, color);
+    }
+  }
+}
+
+/* ---------- 主体生成 ---------- */
+function generate(seed, ov){
+  ov = ov || {};
+  const r = mulberry32(seed);
+  const pick = a => a[(r() * a.length) | 0];
+  const chance = p => r() < p;
+  const ri = (a, b) => a + Math.floor(r() * (b - a + 1));
+
+  const g = new Grid(W, H);
+  const bg = new Grid(W, H);
+
+  /* ---- 基因 ---- */
+  const ageBase = 0.12 + Math.pow(r(), 0.9) * 0.88;
+  const age = ov.age != null ? ov.age : ageBase;
+  const archPick = pick(ARCHETYPES);
+  let arch = ov.role ? (ARCHETYPES.find(a => a.id === ov.role) || archPick) : archPick;
+  // 指定了性别但身份硬锁性别时，换一个允许该性别的身份
+  if (ov.sex && !ov.role && arch.sex && arch.sex !== ov.sex){
+    arch = pick(ARCHETYPES.filter(a => !a.sex || a.sex === ov.sex));
+  }
+  const gender = arch.sex || ov.sex || (chance(0.5) ? 'M' : 'F');
+  const shapeBase = gender === 'F'
+    ? pick(['round', 'round', 'pointed', 'pointed', 'heart', 'long'])
+    : pick(['square', 'square', 'round', 'wide', 'long', 'pointed', 'heart']);
+  const shape = ov.shape || shapeBase;
+  const cx = 24 + (chance(0.35) ? ri(-1, 1) : 0);
+  const cy = 17 + ri(-1, 1);
+  const rx = gender === 'F' ? ri(7, 8) : ri(8, 9);
+  const ry = ri(10, 11) + (shape === 'long' ? 1 : 0);
+
+  let skin = pick(SKINS);
+  if (age > 0.7) skin = mixHex(skin, '#c9a98a', (age - 0.7) * 1.4);
+  if (chance(0.15)) skin = mixHex(skin, '#d9a08a', 0.25); // 偏红润
+  if (ov.skin) skin = ov.skin;
+  const skinL = shade(skin, 0.14), skinD = shade(skin, -0.18), skinDD = shade(skin, -0.34);
+
+  let hairC = pick(HAIRS);
+  const greyed = age > 0.62 && chance(0.6);
+  if (greyed) hairC = mixHex(hairC, '#cfcbc4', Math.min(0.85, (age - 0.62) * 2.6));
+  hairC = desat(hairC, 0.06);
+  if (ov.hairC) hairC = ov.hairC;
+  const hairL = shade(hairC, 0.18), hairD = shade(hairC, -0.32);
+
+  const eyeC = ov.eyeC || pick(EYE_COLORS);
+  const eyeWhite = '#e8e0d2';
+
+  let hairStyle = gender === 'F' ? pick(HAIR_F) : pick(HAIR_M);
+  if (age > 0.72 && chance(0.5) && hairStyle !== 'bald')
+    hairStyle = gender === 'F' ? pick(['bob', 'bun', 'short']) : pick(['receding', 'bald', 'buzz', 'short']);
+  if (hairStyle === 'bald' && chance(0.55)) hairStyle = 'buzz';
+  if (ov.hair) hairStyle = ov.hair;
+
+  const eyeStyleBase = pick(['normal', 'normal', 'normal', 'big', 'big', 'tall', 'tall', 'sharp', 'narrow']);
+  const browStyleBase = gender === 'F'
+    ? pick(['thin', 'arch', 'arch', 'flat', 'worry'])
+    : pick(['flat', 'flat', 'thick', 'angry', 'arch', 'worry']);
+  const mouthStyleBase = gender === 'F'
+    ? pick(['smile', 'smile', 'lips', 'neutral', 'smirk'])
+    : pick(['neutral', 'neutral', 'frown', 'smirk', 'grin', 'open']);
+  const eyeStyle = ov.eye || eyeStyleBase;
+  const browStyle = ov.brow || browStyleBase;
+  const mouthStyle = ov.mouth || mouthStyleBase;
+
+  // 头饰：性别决定可选项，身份保留硬约束（修女→头巾，修士→剃发/兜帽）
+  const gearBase = (() => {
+    let gr = pick(arch.gear);
+    if (gender === 'F' && ['helmet', 'tonsure', 'cowl', 'crown', 'mitre'].includes(gr)) gr = pick(['coif', 'veil', 'hood', 'none']);
+    if (gender === 'M' && ['coif', 'veil', 'wimple'].includes(gr)) gr = pick(['hood', 'cap', 'none']);
+    if (arch.kind === 'chainmail' && gender === 'M' && chance(0.75)) gr = 'helmet';
+    if (arch.id === 'nun' && chance(0.85)) gr = 'wimple';
+    if (arch.id === 'monk' && chance(0.8)) gr = chance(0.5) ? 'tonsure' : 'cowl';
+    return gr;
+  })();
+  const gear = ov.gear || gearBase;
+
+  // 戴帽或头饰时避免高隆起发型穿模
+  if (gear !== 'none' && ['bun', 'afro', 'mohawk'].includes(hairStyle)){
+    hairStyle = 'short';
+  }
+
+  /* ---- 背景（中世纪场景） ---- */
+  const bgBase = pick(['parchment', 'parchment', 'stone', 'wood', 'wood', 'forest', 'sky', 'none']);
+  const bgKind = ov.bg || bgBase;
+  if (bgKind === 'parchment'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      let c = '#d8c9a3';
+      if ((x * 3 + y * 5) % 37 === 0) c = '#c8b891';
+      const edge = Math.min(x, y, W - 1 - x, H - 1 - y);
+      if (edge < 3) c = mixHex(c, '#8a7752', (3 - edge) * 0.22);
+      bg.set(x, y, c);
+    }
+  } else if (bgKind === 'stone'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const row = Math.floor(y / 8), off = (row % 2) * 8;
+      const c = (Math.floor((x + off) / 8) % 2) ? '#5a5a60' : '#4a4a50';
+      bg.set(x, y, c);
+      if (y % 8 === 0 || (x + off) % 8 === 0) bg.set(x, y, '#3a3a40');
+    }
+  } else if (bgKind === 'wood'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const plank = Math.floor(x / 12);
+      let c = plank % 2 ? '#5a4229' : '#6b4f33';
+      if (x % 12 === 0) c = '#3a2a1a';
+      if ((y + plank * 7) % 11 === 0) c = shade(c, -0.15);
+      bg.set(x, y, c);
+    }
+  } else if (bgKind === 'forest'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      let c = y < 14 ? '#2f3f34' : '#2a3a2c';
+      if ((x * 7 + y * 3) % 17 === 0) c = '#243327';
+      bg.set(x, y, c);
+    }
+  } else if (bgKind === 'sky'){
+    for (let y = 0; y < H; y++){
+      const c = mixHex('#4a5870', '#2a3040', y / H);
+      for (let x = 0; x < W; x++) bg.set(x, y, ((x * 7 + y * 3) % 41 === 0) ? shade(c, 0.09) : c);
+    }
+  } else if (bgKind === 'tavern'){
+    // 酒馆：深色木墙 + 一盏悬挂的油灯暖光
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const beam = Math.floor(y / 14);
+      let c = beam % 2 ? '#3a2a1c' : '#463222';
+      if (y % 14 === 0) c = '#241a10';
+      c = mixHex(c, '#8a5a28', Math.max(0, 1 - (Math.abs(x - 24) / 30)) * 0.28);
+      bg.set(x, y, c);
+    }
+    const lx = 34, ly = 9;
+    for (let r = 6; r >= 1; r--)
+      for (let a = -r; a <= r; a++) bg.set(lx + a, ly - r + Math.abs(a), mixHex('#3a2a1c', '#e8b44f', 0.06 * (7 - r)));
+    for (let y = 0; y < ly - 5; y++) bg.set(lx, y, '#2a2016');
+    bg.set(lx, ly, '#e8b44f'); bg.set(lx, ly - 1, '#f4d489');
+  } else if (bgKind === 'chapel'){
+    // 礼拜堂：石墙 + 两侧窄彩窗，颜色压低避免抢人物
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      let c = mixHex('#4a4f5c', '#2a2f38', y / H);
+      if (y % 8 === 0) c = shade(c, -0.1);
+      const inWin = (x >= 3 && x <= 7) || (x >= 40 && x <= 44);
+      if (inWin && y >= 5 && y <= 21){
+        // 只两色交替 + 铅条，读作"有颜色的玻璃"而不是色块
+        const band = Math.floor((y - 5) / 4) % 2;
+        c = band ? '#3f4a68' : '#5a3f52';
+        if ((y - 5) % 4 === 0 || x === 5 || x === 42) c = '#22222c';
+      }
+      bg.set(x, y, c);
+    }
+    // 拱顶阴影
+    for (let x = 9; x <= 38; x++){
+      const k = Math.abs(x - 24) / 15;
+      bg.set(x, Math.round(1 + k * k * 3), '#565c6a');
+    }
+  }
+
+  /* ---- 1. 后发（在身体之下） ---- */
+  const hairBack = (c, d) => {
+    if (hairStyle === 'long' || hairStyle === 'wavy'){
+      for (let y = cy - 5; y <= cy + 15; y++){
+        const w = (y < cy) ? rx + 2 : rx + 1 + Math.round((y - cy) * 0.08);
+        for (let x = cx - w; x <= cx + w; x++){
+          if (Math.abs(x - cx) < rx - 1) continue;   // 只留两侧
+          if (hairStyle === 'wavy' && (y % 5 === 0 || y % 5 === 4) && Math.abs(x - cx) > rx) continue;
+          g.set(x, y, (Math.abs(x - cx) > w - 2) ? d : c);
+        }
+      }
+    }
+    if (hairStyle === 'bob'){
+      for (let y = cy - 4; y <= cy + 5; y++){
+        const t = Math.max(0, (y - (cy + 1)) / 4);
+        const w = Math.round(rx + 2 - t * 1.6);
+        for (let x = cx - w; x <= cx + w; x++){
+          if (Math.abs(x - cx) < rx - 1) continue;
+          g.set(x, y, (Math.abs(x - cx) > w - 1) ? d : c);
+        }
+      }
+    }
+    if (hairStyle === 'ponytail'){
+      for (let y = cy - 6; y <= cy + 15; y++){
+        const t = (y - (cy - 6)) / 21;
+        const px = cx + rx + 1 + Math.round(Math.sin(t * 2.4) * 1.8);
+        const w = t < 0.35 ? 3 : (t < 0.7 ? 2 : 1);
+        for (let k = 0; k < w; k++) g.set(px + k, y, k === w - 1 ? d : c);
+      }
+    }
+    if (hairStyle === 'twin'){
+      // 编辫：左右各一条，按 2px 周期左右错位，看起来像麻花辫
+      for (const sgn of [-1, 1]){
+        for (let y = cy + 1; y <= cy + 14; y++){
+          const t = (y - cy - 1) / 13;
+          const wob = (y % 4 < 2 ? 1 : 0);
+          const px = cx + sgn * (rx + 1 + Math.round(Math.sin(t * 2.2) * 1.2) + wob);
+          const w = t < 0.5 ? 2 : 1;
+          for (let k = 0; k < w; k++) g.set(px + sgn * k, y, k === w - 1 ? d : c);
+        }
+        g.set(cx + sgn * (rx + 1), cy + 1, '#c0442d');   // 发绳
+      }
+    }
+    if (hairStyle === 'afro'){
+      for (let y = cy - ry - 5; y <= cy + 1; y++){
+        const t = (y - cy) / (ry + 6);
+        if (Math.abs(t) > 1) continue;
+        const w = Math.round((rx + 5) * Math.sqrt(1 - t * t));
+        for (let x = cx - w; x <= cx + w; x++){
+          const edge = Math.abs(x - cx) > w - 2;
+          if (edge && chance(0.25)) continue;
+          g.set(x, y, edge ? d : (chance(0.1) ? d : c));
+        }
+      }
+    }
+  };
+
+  // 后发必须先于身体与脸落笔，否则会盖住五官
+  hairBack(hairC, hairD);
+
+  /* ---- 2. 身份与服装 ---- */
+  const skinDark = luma(skin) < 0.42;
+  let clothC = pick(arch.cloth);
+  if (skinDark) clothC = shade(clothC, 0.1);
+  if (ov.clothC) clothC = ov.clothC;
+  const clothD = shade(clothC, -0.32), clothL = shade(clothC, 0.2);
+  const trimC = pick(['#c9a24a', '#a8503f', '#5a6b8a', '#ded2b8', '#6b4a2f']);
+  const neckW = gender === 'F' ? 2 : ri(2, 3);
+  const neckTop = cy + ry + 2;
+
+  // 体型：根据身份与性别拉开剪影差异（铁匠/士兵更魁梧，乞丐/修女更精瘦）
+  let buildMult = 1.0;
+  if (['blacksmith', 'knight', 'soldier', 'mercenary'].includes(arch.id)) buildMult = 1.12;
+  else if (['beggar', 'bard', 'nun', 'alchemist'].includes(arch.id)) buildMult = 0.92;
+  if (ov.build === 'slim') buildMult = 0.9;
+  else if (ov.build === 'broad') buildMult = 1.16;
+  const buildW = (gender === 'F' ? 0.86 + r() * 0.12 : 0.96 + r() * 0.18) * buildMult;
+  // 脖子
+  for (let y = cy + ry - 4; y <= neckTop + 2; y++)
+    for (let x = cx - neckW; x <= cx + neckW; x++)
+      g.set(x, y, x > cx ? skinD : skin);
+
+  const shirtHW = y => {
+    const t = Math.min(1, Math.max(0, (y - neckTop) / (H - neckTop)));
+    let w = (4 + 18 * Math.pow(t, 0.4)) * buildW;
+    if (gender === 'F') w *= 0.9 + 0.2 * t * t;   // 收腰 + 裙摆
+    return Math.round(w);
+  };
+
+  // 躯干
+  for (let y = neckTop; y < H; y++){
+    const hw = shirtHW(y);
+    for (let x = cx - hw; x <= cx + hw; x++){
+      let c = clothC;
+      if (x >= cx + hw - 1) c = clothD;
+      else if (x <= cx - hw) c = clothL;
+      if ((x * 5 + y * 7) % 31 === 0) c = shade(c, -0.08);   // 亚麻织纹
+      g.set(x, y, c);
+    }
+  }
+
+  // 肩线：把袖子和躯干分开
+  for (const sgn of [-1, 1]){
+    for (let i = 0; i < 5; i++){
+      const x = cx + sgn * (Math.round(7 * buildW) + i);
+      const y = neckTop + 2 + i;
+      const c = g.get(x, y);
+      if (c === clothC || c === clothL || c === clothD) g.set(x, y, shade(clothC, -0.22));
+    }
+  }
+
+  // 袖子分界
+  for (let y = neckTop + 4; y < H; y++){
+    const hw = shirtHW(y);
+    const armW = Math.max(3, Math.round(5 * buildW));
+    for (const sgn of [-1, 1]){
+      const x = cx + sgn * (hw - armW);
+      const c = g.get(x, y);
+      if (c === clothC || c === clothL || c === clothD) g.set(x, y, shade(clothC, -0.2));
+    }
+  }
+
+  // 领口露出脖子
+  for (let x = cx - neckW; x <= cx + neckW; x++){
+    const d = Math.abs(x - cx);
+    const dep = 1 + Math.round((neckW - d) * 0.7);
+    for (let y = neckTop; y <= neckTop + dep; y++)
+      g.set(x, y, y === neckTop + dep ? skinD : skin);
+  }
+
+  const kind = arch.kind;
+  const beltY = neckTop + 9;
+  if (kind === 'tunic' || kind === 'rags'){
+    // 用一块补丁和两侧收暗表示衣料结构，不画横贯躯干的腰带
+    const ppx = cx + ri(-6, 4), ppy = neckTop + ri(5, 11);
+    for (let y = ppy; y <= ppy + 1; y++)
+      for (let x = ppx; x <= ppx + 2; x++) g.set(x, y, shade(clothC, -0.22));
+    for (let y = beltY; y <= beltY + 2; y++){
+      const hwS = shirtHW(y);
+      g.set(cx - hwS, y, shade(clothC, -0.26));
+      g.set(cx + hwS, y, shade(clothC, -0.26));
+    }
+    if (kind === 'rags'){
+      for (let i = 0; i < 8; i++){
+        const px = cx + ri(-9, 8), py = neckTop + ri(3, 14);
+        if (g.get(px, py) === clothC) g.set(px, py, shade(clothC, -0.22));
+      }
+    }
+  }
+  if (kind === 'robe'){
+    // 前襟从领口下两格起，避免和脖子连成一条"胡须"似的竖线
+    for (let y = neckTop + 3; y < beltY; y++) g.set(cx, y, shade(clothC, -0.16));
+    // 束腰只留绳结与垂绳，不画贯穿全身的横带
+    const ropeC = '#8f7d63', ropeD = '#5f513d';
+    g.set(cx + 2, beltY - 1, ropeC); g.set(cx + 3, beltY, ropeD);
+    g.set(cx + 2, beltY, ropeD);     g.set(cx + 2, beltY + 1, ropeC);
+    g.set(cx + 3, beltY + 1, ropeC); g.set(cx + 3, beltY + 2, ropeD);
+    g.set(cx + 1, beltY + 1, ropeC); g.set(cx + 1, beltY + 2, ropeD);
+    g.set(cx + 1, beltY + 3, ropeC); g.set(cx + 1, beltY + 4, ropeD);
+    for (let y = beltY - 1; y <= beltY + 1; y++){
+      const hwS = shirtHW(y);
+      g.set(cx - hwS, y, shade(clothC, -0.28));
+      g.set(cx + hwS, y, shade(clothC, -0.28));
+    }
+    // 胸前十字：宗教身份才有，女巫与巫师不挂十字
+    if (arch.id !== 'witch'){
+      for (let y = neckTop + 3; y <= neckTop + 6; y++) g.set(cx + 4, y, '#d8cdb4');
+      for (let x = cx + 3; x <= cx + 5; x++) g.set(x, neckTop + 4, '#d8cdb4');
+    }
+  }
+      if (kind === 'chainmail'){
+    // 彩色罩袍 + 两侧金属肩甲，锁子甲只出现在肩颈，避免整身波点
+    for (const sgn of [-1, 1]){
+      const px = cx + sgn * Math.round(9 * buildW);
+      for (let y = neckTop; y <= neckTop + 5; y++){
+        const w = 3 - Math.abs(y - (neckTop + 2));
+        if (w < 0) continue;
+        for (let x = px - w; x <= px + w; x++)
+          g.set(x, y, (x + y) % 2 === 0 ? '#a8aeb6' : '#5a6068');
+      }
+    }
+    for (let y = cy + ry - 2; y < neckTop + 1; y++)
+      for (let x = cx - neckW - 1; x <= cx + neckW + 1; x++)
+        g.set(x, y, (x + y) % 2 ? '#8a8f96' : '#575d66');
+  }
+  if (kind === 'gambeson'){
+    // 只留纵向绗缝线，横向压线在 48px 下会变成条纹衬衫
+    for (let y = neckTop; y < H; y++){
+      const hw = shirtHW(y);
+      for (let x = cx - hw + 2; x <= cx + hw - 2; x += 5) g.set(x, y, shade(clothC, -0.13));
+    }
+  }
+  if (kind === 'doublet'){
+    for (let y = cy + ry - 2; y < neckTop + 1; y++)
+      for (let x = cx - neckW - 1; x <= cx + neckW + 1; x++) g.set(x, y, trimC);
+    for (let y = neckTop + 2; y < neckTop + 14; y += 2) g.set(cx, y, trimC);
+    for (const sgn of [-1, 1]){
+      const hw0 = shirtHW(neckTop + 1);
+      for (let i = 0; i < 5; i++) g.set(cx + sgn * (hw0 - i - 1), neckTop + 1 + i, clothD);
+    }
+  }
+  if (kind === 'cloak'){
+    for (let y = neckTop; y < H; y++){
+      const openW = 1 + Math.round((y - neckTop) * 0.16);
+      for (let x = cx - openW; x <= cx + openW; x++) g.set(x, y, '#2a2118');
+      g.set(cx - openW - 1, y, clothD); g.set(cx + openW + 1, y, clothD);
+    }
+    g.set(cx - 2, neckTop + 1, trimC); g.set(cx + 2, neckTop + 1, trimC);
+    g.set(cx - 2, neckTop + 2, shade(trimC, -0.3)); g.set(cx + 2, neckTop + 2, shade(trimC, -0.3));
+  }
+  if (arch.apron){
+    for (let y = neckTop + 5; y < H; y++){
+      const hw = Math.round(shirtHW(y) * 0.55);
+      for (let x = cx - hw; x <= cx + hw; x++) g.set(x, y, '#6b5a46');
+    }
+  }
+  /* ---- 3. 脸 ---- */
+  const faceTop = cy - ry;
+  for (let y = faceTop; y <= cy + ry; y++){
+    const hw = headHW(y, cy, rx, ry, shape);
+    if (hw < 0) continue;
+    for (let x = cx - hw; x <= cx + hw; x++){
+      let c = skin;
+      const rightGap = (cx + hw) - x;
+      const leftGap = x - (cx - hw);
+      if (rightGap <= 1) c = skinD;
+      else if (rightGap === 2 && gender === 'M') c = mixHex(skin, skinD, 0.45);
+      if (leftGap === 0) c = skinL;
+      if (y >= cy + ry - 1) c = (c === skin ? skinD : c);
+      else if (y === cy + ry - 2 && c === skin) c = mixHex(skin, skinD, 0.5);
+      g.set(x, y, c);
+    }
+  }
+  // 耳朵：只比脸缘外凸 1px
+  const earY = cy - 1;
+  for (const sgn of [-1, 1]){
+    const ex = cx + sgn * (rx + 1);
+    g.set(ex, earY, skinL); g.set(ex, earY + 1, skin); g.set(ex, earY + 2, skinD);
+  }
+
+  /* ---- 4. 前发 ---- */
+  const fringeY = cy - 6;   // 刘海最低点（不遮眉眼）
+  // 头发画在一个比头略大的椭圆上，才有「发量」而不是贴头皮
+  const hairTop = (bottomY, exp = 1) => {
+    const hcy = cy - 1, hrx = rx + exp, hry = ry + exp;
+    for (let y = hcy - hry; y <= bottomY; y++){
+      const hw = ellipseHW(y, hcy, hrx, hry);
+      if (hw < 0) continue;
+      for (let x = cx - hw; x <= cx + hw; x++){
+        const edge = Math.abs(x - cx) >= hw;
+        g.set(x, y, edge ? hairD : hairC);
+      }
+    }
+  };
+
+  // 顶部高光，避免深色头发与描边粘成一片
+  const hairHi = () => {
+    for (let x = cx - Math.round(rx * 0.7); x <= cx + Math.round(rx * 0.7); x++){
+      for (let y = faceTop - 5; y < cy - 2; y++){
+        const c = g.get(x, y);
+        if (c === hairC || c === hairD){
+          if (g.get(x, y + 1) === hairC) g.set(x, y + 1, hairL);
+          break;
+        }
+      }
+    }
+  };
+
+  switch (hairStyle){
+    case 'buzz':
+      hairTop(fringeY + 1, 1); break;
+    case 'short':
+      hairTop(fringeY + 1, 1);
+      for (const sgn of [-1, 1])
+        for (let y = cy - 4; y <= cy + 2; y++)
+          g.set(cx + sgn * (rx + 1), y, hairD);
+      break;
+    case 'fringe':
+      hairTop(fringeY + 2, 1);
+      for (let x = cx - rx; x <= cx + rx; x++) g.set(x, fringeY + 2, hairD);
+      break;
+    case 'sidepart': {
+      hairTop(fringeY + 1, 1);
+      const dir = chance(0.5) ? 1 : -1;
+      for (let i = 0; i < rx - 1; i++){
+        const x = cx + dir * (i - 1);
+        const y = fringeY + Math.min(3, Math.floor(i * 0.6));
+        g.set(x, y, hairD);
+      }
+      for (let x = cx - rx; x <= cx + rx; x++) if (chance(0.5)) g.set(x, fringeY, hairC);
+      break;
+    }
+    case 'long':
+    case 'wavy':
+      hairTop(fringeY + 2, 1);
+      break;
+    case 'bob':
+      hairTop(fringeY + 2, 1);
+      for (const sgn of [-1, 1])
+        for (let y = cy - 2; y <= cy + 4; y++)
+          g.set(cx + sgn * (rx + 1), y, hairD);
+      break;
+    case 'ponytail':
+      hairTop(fringeY + 1, 1);
+      for (let x = cx - rx + 1; x <= cx + rx - 1; x++) g.set(x, fringeY, hairD);
+      break;
+    case 'twin':
+      hairTop(fringeY + 1, 1);
+      for (let x = cx - rx; x <= cx + rx; x++) if (x % 3 !== 0) g.set(x, fringeY + 1, hairC);
+      break;
+    case 'curly': {
+      hairTop(fringeY, 1);
+      for (let y = faceTop - 3; y <= fringeY; y++){
+        const hw = headHW(y, cy, rx, ry, shape);
+        if (hw < 0) continue;
+        for (let x = cx - hw - 2; x <= cx + hw + 2; x++){
+          if (g.get(x, y) === hairC && chance(0.22)) g.set(x, y, hairD);
+          if (!g.get(x, y) && chance(0.35)) g.set(x, y, hairC);
+        }
+      }
+      break;
+    }
+    case 'afro':
+      hairTop(fringeY + 1, 1); break;
+    case 'bun': {
+      hairTop(fringeY + 1, 1);
+      const bx = cx + (chance(0.4) ? ri(-2, 2) : 0);
+      for (let y = faceTop - 5; y <= faceTop - 1; y++)
+        for (let x = bx - 2; x <= bx + 3; x++)
+          g.set(x, y, (y === faceTop - 5 || x === bx + 3) ? hairD : hairC);
+      break;
+    }
+    case 'mohawk': {
+      for (let y = cy - ry - 2; y <= fringeY - 1; y++)
+        for (let x = cx - 1; x <= cx + 1; x++)
+          g.set(x, y, (x === cx - 1) ? hairD : hairC);
+      for (const sgn of [-1, 1])
+        for (let y = cy - 3; y <= cy + 1; y++) g.set(cx + sgn * (rx + 1), y, hairD);
+      break;
+    }
+    case 'receding': {
+      for (let y = faceTop - 1; y <= cy - 3; y++){
+        const hw = headHW(y, cy, rx, ry, shape);
+        if (hw < 0) continue;
+        for (let x = cx - hw - 1; x <= cx + hw + 1; x++){
+          const d = Math.abs(x - cx);
+          if (y < cy - 6 && d < hw - 1) continue;   // 中间秃
+          g.set(x, y, d > hw - 1 ? hairD : hairC);
+        }
+      }
+      for (const sgn of [-1, 1])
+        for (let y = cy - 5; y <= cy + 1; y++) g.set(cx + sgn * (rx + 1), y, hairD);
+      break;
+    }
+    default:
+      break;
+  }
+  hairHi();
+
+  /* ---- 5. 五官 ---- */
+  const eyeY = cy - 1;
+  const eyePat = EYE_PATTERNS[eyeStyle];
+  const ew = eyePat[0].length, eh = eyePat.length;
+  const eyeCols = { w: '#efe7d8', p: eyeC, d: shade(eyeC, -0.55) };
+  const stampEye = (x0, y0, pat, mirror) => {
+    for (let y = 0; y < pat.length; y++){
+      for (let x = 0; x < pat[y].length; x++){
+        const ch = pat[y][mirror ? pat[y].length - 1 - x : x];
+        if (!ch || ch === ' ') continue;
+        g.set(x0 + x, y0 + y, eyeCols[ch]);
+      }
+    }
+  };
+  // 左右眼关于 cx 对称，眼距固定 3px，不随眼宽散开
+  const exR = cx + 2 + Math.max(0, 2 - ew);
+  const exL = 2 * cx - exR - ew + 1;
+  const dx = Math.round((exR + (ew - 1) / 2) - cx);
+  const blink = chance(0.05);
+  stampEye(exL, eyeY, blink ? [['p', 'p']] : eyePat, false);
+  stampEye(exR, eyeY, blink ? [['p', 'p']] : eyePat, false);
+  // 单行眼型补一条上眼睑暗线；多行眼型自带深色睫毛行，不再覆盖
+  if (eh <= 1){
+    for (let x = 0; x < ew; x++){
+      g.set(exL + x, eyeY - 1, mixHex(skin, skinD, 0.45));
+      g.set(exR + x, eyeY - 1, mixHex(skin, skinD, 0.45));
+    }
+  }
+  if (age > 0.55) for (let x = 0; x < ew; x++){ g.set(exL + x, eyeY + eh, skinD); g.set(exR + x, eyeY + eh, skinD); }
+  // 眉毛：4px 连续线，中间拱起
+  const browShape = BROW_SHAPES[browStyle];
+  const browC = skinDark ? shade(hairC, -0.18) : mixHex(hairC, skinD, 0.35);
+  const browY = eyeY - 3;
+  const bw = browShape.length;
+  for (let i = 0; i < bw; i++){
+    const ly = browY - browShape[i];
+    const lx = cx - dx - 2 + i;
+    g.set(lx, ly, browC);
+    g.set(2 * cx - lx, ly, browC);
+    if (browStyle === 'thick'){ g.set(lx, ly + 1, browC); g.set(2 * cx - lx, ly + 1, browC); }
+  }
+
+  // 鼻子
+  const noseY = cy + 3;
+  const noseStyle = ri(0, 3);
+  if (noseStyle === 0){
+    g.set(cx, noseY, skinD);
+  } else if (noseStyle === 1){
+    g.set(cx, noseY, skinD);
+    g.set(cx - 1, noseY + 1, skinDD); g.set(cx + 1, noseY + 1, skinDD);
+  } else if (noseStyle === 2){
+    g.set(cx + 1, noseY - 1, skinD);
+    g.set(cx, noseY, skinD); g.set(cx + 1, noseY, skinD);
+  } else {
+    g.set(cx, noseY, skinD);
+    g.set(cx - 1, noseY + 1, skinDD); g.set(cx, noseY + 1, skinD); g.set(cx + 1, noseY + 1, skinDD);
+  }
+
+  // 嘴
+  const mouthY = cy + 6;
+  const mw = ri(2, 4);
+  const lipC = skinDark ? mixHex(skinD, '#c8696a', 0.62) : mixHex(skinD, '#a3484a', 0.5);
+  const mouthX = cx - Math.floor(mw / 2);
+  const hline = (y, x0, x1, c) => { for (let x = x0; x <= x1; x++) g.set(x, y, c); };
+  switch (mouthStyle){
+    case 'neutral': hline(mouthY, mouthX, mouthX + mw - 1, lipC); break;
+    case 'smile':
+      hline(mouthY, mouthX, mouthX + mw - 1, lipC);
+      g.set(mouthX - 1, mouthY - 1, lipC); g.set(mouthX + mw, mouthY - 1, lipC);
+      break;
+    case 'grin':
+      for (let x = mouthX - 1; x <= mouthX + mw; x++) g.set(x, mouthY + 1, '#4a1f22');
+      for (let x = mouthX; x <= mouthX + mw - 1; x++) g.set(x, mouthY, mixHex(lipC, '#d8ccb8', 0.55));
+      g.set(mouthX - 1, mouthY - 1, lipC); g.set(mouthX + mw, mouthY - 1, lipC);
+      break;
+    case 'frown':
+      hline(mouthY, mouthX, mouthX + mw - 1, lipC);
+      g.set(mouthX - 1, mouthY + 1, lipC); g.set(mouthX + mw, mouthY + 1, lipC);
+      break;
+    case 'smirk':
+      hline(mouthY, mouthX, mouthX + mw - 1, lipC);
+      g.set(mouthX + mw, mouthY - 1, lipC);
+      break;
+    case 'open':
+      for (let x = mouthX; x <= mouthX + mw - 1; x++){
+        g.set(x, mouthY, '#4a1f22'); g.set(x, mouthY + 1, '#7a3033');
+      }
+      break;
+    case 'lips':
+      hline(mouthY, mouthX, mouthX + mw - 1, lipC);
+      hline(mouthY + 1, mouthX, mouthX + mw - 1, shade(lipC, -0.2));
+      break;
+  }
+
+  // 胡须
+  const beardBase = (gender === 'M' && age > 0.3 && chance(0.55))
+    ? pick(['stubble', 'mustache', 'goatee', 'full', 'longbeard']) : 'none';
+  const beard = ov.beard != null ? ov.beard : beardBase;
+  if (beard !== 'none'){
+    const bc = mixHex(hairC, skinD, 0.2);
+    if (beard === 'stubble'){
+      for (let y = cy + 4; y <= cy + ry - 1; y++){
+        const hw = headHW(y, cy, rx, ry, shape);
+        for (let x = cx - hw + 1; x <= cx + hw - 1; x++) if (chance(0.28)) g.set(x, y, bc);
+      }
+    } else if (beard === 'mustache'){
+      hline(mouthY - 2, cx - 2, cx + 2, bc);
+      g.set(cx - 3, mouthY - 1, bc); g.set(cx + 3, mouthY - 1, bc);
+    } else if (beard === 'goatee'){
+      hline(mouthY - 2, cx - 2, cx + 2, bc);
+      for (let y = mouthY + 2; y <= cy + ry - 1; y++) hline(y, cx - 1, cx + 1, bc);
+    } else if (beard === 'full'){
+      for (let y = mouthY - 1; y <= cy + ry; y++){
+        const hw = headHW(y, cy, rx, ry, shape);
+        if (hw < 0) continue;
+        for (let x = cx - hw + 1; x <= cx + hw - 1; x++){
+          if (y <= mouthY + 1 && Math.abs(x - cx) < 3) continue;   // 嘴露出来
+          g.set(x, y, bc);
+        }
+      }
+      hline(mouthY - 2, cx - 2, cx + 2, bc);
+    } else if (beard === 'longbeard'){
+      const bcL = mixHex(hairC, skinD, 0.38);
+      for (let y = mouthY; y <= cy + ry + 6; y++){
+        const base = headHW(Math.min(y, cy + ry), cy, rx, ry, shape);
+        const over = Math.max(0, y - (cy + ry));
+        const w = Math.max(0, Math.round(base * 0.55) - over);
+        if (w < 1) continue;
+        for (let x = cx - w; x <= cx + w; x++){
+          if (y <= mouthY + 1 && Math.abs(x - cx) < 3) continue;
+          g.set(x, y, bcL);
+        }
+      }
+      hline(mouthY - 2, cx - 2, cx + 2, bc);
+    }
+  }
+
+  // 皱纹
+  if (age > 0.62){
+    if (chance(0.7)) hline(faceTop + 3, cx - 3, cx + 3, shade(skin, -0.12));
+    if (chance(0.5)) hline(faceTop + 5, cx - 2, cx + 2, shade(skin, -0.1));
+    if (chance(0.6)){
+      for (let y = mouthY - 1; y <= mouthY + 2; y++){
+        g.set(cx - 4, y, shade(skin, -0.14)); g.set(cx + 4, y, shade(skin, -0.14));
+      }
+    }
+  }
+
+  /* ---- 6. 中世纪头饰与配饰 ---- */
+  const gearC = skinDark ? mixHex(mixHex(clothC, '#4a3f30', 0.35), '#c8b898', 0.35)
+                         : mixHex(clothC, '#4a3f30', 0.35);
+  const gearD = shade(gearC, -0.3);
+  const metal = '#8a9098', metalD = '#4e545c', metalL = '#c2c8d0';
+  const linen = '#e4dcc8', linenD = '#b4aa94';
+
+  const holeFace = (x, y, fromY) => {
+    const fhw = headHW(y, cy, rx, ry, shape);
+    return fhw >= 0 && y >= fromY && Math.abs(x - cx) <= fhw;
+  };
+
+  if (gear === 'hood' || gear === 'cowl'){
+    // 兜帽要比头骨连同头发都高出一截，否则发顶会从帽口漏出来
+    const hcy = cy - 1, hrx = rx + 3, hry = ry + 4;
+    for (let y = hcy - hry; y <= cy + 6; y++){
+      const hw = ellipseHW(y, hcy, hrx, hry);
+      if (hw < 0) continue;
+      for (let x = cx - hw; x <= cx + hw; x++){
+        if (holeFace(x, y, faceTop + 1)) continue;
+        g.set(x, y, Math.abs(x - cx) >= hw - 1 ? gearD : gearC);
+      }
+    }
+    if (gear === 'hood'){
+      // 兜帽尖尾向后侧倒，短一些，避免头顶长出天线
+      for (let i = 0; i < 4; i++)
+        g.set(cx + 2 + i, faceTop - 5 - (i >> 1), i === 3 ? gearD : gearC);
+    }
+    for (let x = cx - rx - 2; x <= cx + rx + 2; x++)
+      for (let y = cy + 3; y <= neckTop + 1; y++)
+        if (Math.abs(x - cx) > rx - 1) g.set(x, y, gearD);
+  }
+
+  if (gear === 'coif'){
+    const coifC = mixHex('#e2dac6', clothC, 0.22), coifD = shade(coifC, -0.24);
+    const hcy = cy - 1, hrx = rx + 2, hry = ry + 3;
+    for (let y = hcy - hry; y <= cy + ry - 2; y++){
+      const hw = ellipseHW(y, hcy, hrx, hry);
+      if (hw < 0) continue;
+      for (let x = cx - hw; x <= cx + hw; x++){
+        if (holeFace(x, y, faceTop + 1)) continue;
+        if (y > cy + 1 && Math.abs(x - cx) < hw - 1) continue;
+        g.set(x, y, Math.abs(x - cx) >= hw - 1 ? coifD : coifC);
+      }
+    }
+    // 系带只留在耳下两侧，不横跨下巴
+    for (const sgn of [-1, 1])
+      g.set(cx + sgn * (rx + 1), cy + ry - 2, coifD);
+  }
+
+  if (gear === 'veil'){
+    const vc = linen, vd = linenD;
+    const hcy = cy - 1, hrx = rx + 3, hry = ry + 3;
+    for (let y = hcy - hry; y <= cy + ry + 4; y++){
+      const hw = y <= cy + ry
+        ? ellipseHW(y, hcy, hrx, hry)
+        : Math.max(neckW + 1, hrx - Math.round((y - cy - ry) * 0.6));
+      if (hw < 0) continue;
+      for (let x = cx - hw; x <= cx + hw; x++){
+        if (holeFace(x, y, faceTop + 1) && y < cy + ry - 1) continue;
+        if (Math.abs(x - cx) < hw - 3 && y > cy + 1) continue;
+        g.set(x, y, (x + y) % 7 === 0 ? vd : vc);
+      }
+    }
+  }
+
+  if (gear === 'wimple'){
+    const hcy = cy - 1, hrx = rx + 2, hry = ry + 3;
+    for (let y = hcy - hry; y <= neckTop + 2; y++){
+      let hw;
+      if (y <= cy + ry) hw = ellipseHW(y, hcy, hrx, hry);
+      else {
+        const t = (y - cy - ry) / Math.max(1, neckTop + 2 - cy - ry);
+        hw = Math.round(hrx - t * (hrx - neckW - 1));
+      }
+      if (hw < 0) continue;
+      for (let x = cx - hw; x <= cx + hw; x++){
+        if (holeFace(x, y, faceTop + 1)) continue;
+        g.set(x, y, Math.abs(x - cx) >= hw - 1 ? linenD : ((x + y) % 9 === 0 ? linenD : linen));
+      }
+    }
+  }
+
+  if (gear === 'helmet'){
+    const hcy = cy - 3, hrx = rx + 2, hry = ry - 1;
+    for (let y = hcy - hry; y <= cy - 4; y++){
+      const hw = ellipseHW(y, hcy, hrx, hry);
+      if (hw < 0) continue;
+      for (let x = cx - hw; x <= cx + hw; x++){
+        const topY = hcy - hry;
+        let c = metal;
+        if (Math.abs(x - cx) >= hw - 1) c = metalD;
+        else if (y <= topY + 1) c = metalL;
+        g.set(x, y, c);
+      }
+    }
+    // 鼻梁护条
+    for (let y = cy - 4; y <= cy + 1; y++){ g.set(cx, y, metalL); g.set(cx + 1, y, metalD); }
+    // 护耳
+    for (const sgn of [-1, 1])
+      for (let y = cy - 4; y <= cy + 1; y++) g.set(cx + sgn * (rx + 1), y, metalD);
+    // 铆钉与顶脊
+    g.set(cx - 3, cy - 7, metalL); g.set(cx + 3, cy - 7, metalL);
+    for (let y = cy - 12; y <= cy - 9; y++) if (g.get(cx, y)) g.set(cx, y, metalD);
+  }
+
+  if (gear === 'crown'){
+    const gold = '#d9b043', goldD = '#a8801f';
+    const hwC = headHW(cy - 6, cy, rx, ry, shape);
+    for (let x = cx - hwC; x <= cx + hwC; x++){ g.set(x, cy - 7, gold); g.set(x, cy - 6, goldD); }
+    for (let i = -2; i <= 2; i++){
+      const x = cx + i * Math.max(2, Math.round(hwC / 3));
+      g.set(x, cy - 8, gold); g.set(x, cy - 9, gold);
+      g.set(x, cy - 7, '#a83f3f');
+    }
+  }
+
+  if (gear === 'circlet'){
+    // 额环：一条贴额的金线，中央嵌一颗宝石
+    const hwC = Math.max(3, headHW(cy - 7, cy, rx, ry, shape));
+    const gold = '#d9b043', goldD = '#9c7a1e';
+    for (let x = cx - hwC; x <= cx + hwC; x++){
+      if (!g.get(x, cy - 7) && !g.get(x, cy - 8)) continue;
+      const k = Math.abs(x - cx) / Math.max(1, hwC);
+      const yy = cy - 7 - Math.round((1 - k) * 1.2);
+      g.set(x, yy, k > 0.85 ? goldD : gold);
+    }
+    g.set(cx, cy - 9, '#a8425a'); g.set(cx, cy - 8, '#8a2f45');
+  }
+
+  if (gear === 'wreath'){
+    // 花环：一圈交替的叶片与小花，压低在发际上
+    const hwC = Math.max(4, headHW(cy - 6, cy, rx, ry, shape));
+    const leaf = '#5f7a44', leafD = '#41562f';
+    const bloom = pick(['#d9c46a', '#c98a9a', '#d8d2be']);
+    for (let x = cx - hwC; x <= cx + hwC; x++){
+      const k = Math.abs(x - cx) / Math.max(1, hwC);
+      const yy = cy - 6 - Math.round((1 - k * k) * 3.4);
+      if (!g.get(x, yy) && !g.get(x, yy + 1)) continue;
+      const c = (x % 3 === 0) ? bloom : ((x + yy) % 5 === 0 ? leafD : leaf);
+      g.set(x, yy, c);
+      if (x % 3 === 0) g.set(x, yy - 1, bloom);
+    }
+  }
+
+  if (gear === 'mitre'){
+    // 主教冠：白麻尖顶 + 金十字，底部箍一条金边
+    const hwC = Math.max(4, headHW(cy - 6, cy, rx, ry, shape));
+    const topY = Math.max(1, cy - 15);
+    for (let y = topY; y <= cy - 6; y++){
+      const t = (y - topY) / Math.max(1, (cy - 6) - topY);
+      const w = Math.max(1, Math.round(hwC * 0.85 * t + 0.6));
+      for (let x = cx - w; x <= cx + w; x++){
+        g.set(x, y, (x === cx - w || x === cx + w) ? linenD : linen);
+      }
+    }
+    const gold = '#d9b043';
+    for (let y = topY + 2; y <= cy - 8; y++) g.set(cx, y, gold);
+    for (let x = cx - 2; x <= cx + 2; x++) g.set(x, topY + 4, gold);
+    for (let x = cx - hwC; x <= cx + hwC; x++){ g.set(x, cy - 6, gold); g.set(x, cy - 5, shade(gold, -0.3)); }
+  }
+
+  if (gear === 'cap'){
+    const hwC = Math.max(3, headHW(cy - 6, cy, rx, ry, shape));
+    // 上窄下宽的中世纪软毡帽
+    for (let y = cy - 11; y <= cy - 5; y++){
+      const k = (y - (cy - 11)) / 6;
+      const w = Math.max(1, Math.round(hwC * (0.35 + 0.65 * k)));
+      for (let x = cx - w; x <= cx + w; x++) g.set(x, y, y === cy - 11 ? gearD : gearC);
+    }
+    for (let x = cx - hwC - 1; x <= cx + hwC + 1; x++){ g.set(x, cy - 5, gearD); g.set(x, cy - 4, gearD); }
+  }
+
+  if (gear === 'straw'){
+    const sc = '#c9a86a', sd = '#8a6d3f';
+    for (let x = cx - rx - 6; x <= cx + rx + 6; x++){
+      const k = Math.abs(x - cx) / (rx + 6);
+      g.set(x, cy - 6 + Math.round(k * 1.6), sc);
+      g.set(x, cy - 5 + Math.round(k * 1.6), sd);
+    }
+    for (let y = cy - 12; y <= cy - 6; y++){
+      const w = Math.round((rx - 2) * Math.sqrt(Math.max(0, 1 - Math.pow((y - (cy - 6)) / 5, 2))));
+      for (let x = cx - w; x <= cx + w; x++) g.set(x, y, (x + y) % 5 === 0 ? sd : sc);
+    }
+  }
+
+  if (gear === 'tonsure'){
+    const topY = faceTop - 2;
+    for (let x = cx - rx; x <= cx + rx; x++){
+      const hw = ellipseHW(topY, cy - 1, rx + 1, ry + 1);
+      if (hw > 0 && Math.abs(x - cx) < hw - 1){
+        g.set(x, topY, skinL); g.set(x, topY + 1, skin);
+      }
+    }
+  }
+
+  // 身份配饰：腰袋（长袍的十字已由袍子本身画过，不再重复）
+  if (chance(0.5) && arch.kind !== 'robe'){
+    const px = cx + 5, py = beltY + 3;
+    for (let y = py; y <= py + 2; y++)
+      for (let x = px - 1; x <= px + 2; x++) g.set(x, y, y === py ? '#7a5a3a' : '#5a3f28');
+  }
+  if (chance(0.3) && gear !== 'helmet' && gear !== 'wimple'){
+    g.set(cx - 3, cy - 4, mixHex(skin, '#c06a5a', 0.6));
+  }
+
+  // 后发已在身体之前绘制完毕
+
+  // 女性露发时的发带
+  if (gender === 'F' && gear === 'none' && chance(0.55)){
+    const hwB = Math.max(2, headHW(cy - 6, cy, rx, ry, shape));
+    for (let x = cx - hwB; x <= cx + hwB; x++){
+      const c0 = g.get(x, cy - 6);
+      if (c0 === hairC || c0 === hairD) g.set(x, cy - 6, trimC);
+    }
+  }
+
+  /* ---- 7. 描边 ---- */
+  g.outline(OUTLINE);
+
+  /* ---- 信息：全部返回 key，文案交给 i18n ---- */
+  const coveredGear = ['hood', 'cowl', 'coif', 'veil', 'wimple', 'helmet', 'mitre'];
+  const hairKeyOut = coveredGear.includes(gear) ? 'covered' : hairStyle;
+  let ageKey = 'prime';
+  if (age < 0.18) ageKey = 'child'; else if (age < 0.38) ageKey = 'youth';
+  else if (age < 0.6) ageKey = 'prime'; else if (age < 0.8) ageKey = 'middle'; else ageKey = 'elder';
+
+  return {
+    grid: g, bg,
+    info: {
+      role: arch.id, sex: gender, cloth: kind, gear,
+      face: shape, hair: hairKeyOut, eye: eyeStyle, brow: browStyle, mouth: mouthStyle,
+      age: ageKey, beard, bg: bgKind,
+      // 可读的材质与配色档位
+      dye: clothKey(clothC), hairColor: hairKey(hairC), skinTone: skinKey(skin),
+      build: buildMult > 1.05 ? 'broad' : (buildMult < 0.97 ? 'slim' : 'normal'),
+      // 供面板回显与锁定的参数
+      params: { role: arch.id, sex: gender, age, shape, hair: hairStyle, eye: eyeStyle,
+                brow: browStyle, mouth: mouthStyle, gear, bg: bgKind, beard,
+                skin, hairC, eyeC }
+    }
+  };
+}
+
+/* ---------- 渲染 ---------- */
+function composite(res){
+  const out = new Array(W * H);
+  for (let i = 0; i < W * H; i++) out[i] = res.grid.d[i] || res.bg.d[i] || null;
+  return out;
+}
+function drawTo(canvas, pixels, scale){
+  const ctx = canvas.getContext('2d');
+  canvas.width = W * scale; canvas.height = H * scale;
+  ctx.imageSmoothingEnabled = false;
+  const img = ctx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++){
+    const c = pixels[i];
+    const o = i * 4;
+    if (!c){ img.data[o + 3] = 0; continue; }
+    const [r, g, b] = rgbOf(c);
+    img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+  }
+  const tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  tmp.getContext('2d').putImageData(img, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(tmp, 0, 0, W * scale, H * scale);
+}
+
+/* =========================================================
+   i18n：所有界面文案集中在此，切换即时生效
+   ========================================================= */
+const I18N = {
+  zh: {
+    langName: '中文',
+    title: '中世纪像素人物生成器',
+    headline: '中世纪人物', headlineSub: '随机像素肖像 · 48×48',
+    roll: '随机一个', rollKbd: '空格',
+    save: '下载 PNG', copy: '复制种子', copyDone: '已复制', grid: '网格',
+    gridTitle: '显示像素网格',
+    seedLabel: '种子 SEED', apply: '生成',
+    seedHint: '同一个种子永远长出同一个人。填数字或任意文字都行。',
+    profileLabel: '档案 PROFILE', forgeLabel: '定制 FORGE', recentLabel: '最近 RECENT',
+    random: '随机',
+    forgeReset: '清空全部锁定', forgeResetTitle: '只清锁定项，种子不变',
+    lockedHint: '已锁定。再选“随机”可解除。',
+    recentEmpty: '还没有记录。随机几个就有了。',
+    hairLocked: '当前头饰会遮住发型',
+    fields: {
+      role: '身份', sex: '性别', age: '年龄', shape: '脸型', hair: '发型',
+      eye: '眼睛', brow: '眉型', mouth: '嘴型', beard: '胡须', gear: '头饰',
+      bg: '背景', build: '体型'
+    },
+    swatches: { skin: '肤色', hairC: '发色', clothC: '衣色', eyeC: '瞳色' },
+    profile: {
+      cloth: '衣着', gear: '头饰', hair: '发型', face: '脸型', eye: '眼睛',
+      brow: '眉型', mouth: '嘴型', beard: '胡须', skin: '肤色', hairColor: '发色',
+      build: '体型', bg: '背景'
+    },
+    sex: { M: '男', F: '女' },
+    build: { slim: '清瘦', normal: '匀称', broad: '魁梧' },
+    age: { child: '孩童', youth: '少年', prime: '壮年', middle: '中年', elder: '老年' },
+    role: {
+      farmer: '农民', monk: '修士', knight: '骑士', noble: '贵族', soldier: '士兵',
+      merchant: '商人', bard: '吟游诗人', beggar: '乞丐', nun: '修女', witch: '女巫',
+      blacksmith: '铁匠', archer: '弓手', bishop: '主教', pilgrim: '朝圣者',
+      alchemist: '炼金术士', fisher: '渔夫', maid: '女仆', mercenary: '佣兵'
+    },
+    shape: { round: '圆脸', square: '方脸', pointed: '尖下巴', heart: '心形脸', long: '长脸', wide: '宽脸' },
+    hair: {
+      buzz: '寸头', short: '短发', fringe: '齐刘海', sidepart: '三七分', long: '长直发',
+      bob: '波波头', ponytail: '马尾', twin: '双马尾', curly: '卷发', afro: '爆炸头',
+      bun: '丸子头', mohawk: '莫西干', wavy: '波浪长发', receding: '地中海', bald: '光头',
+      covered: '被遮住'
+    },
+    eye: { dot: '小眼', normal: '标准眼', tall: '细长眼', narrow: '眯眼', big: '大眼', sharp: '上挑眼' },
+    brow: { flat: '平眉', arch: '挑眉', thick: '浓眉', angry: '剑眉', thin: '淡眉', worry: '八字眉' },
+    mouth: { neutral: '平嘴', smile: '微笑', grin: '露齿笑', frown: '撇嘴', smirk: '坏笑', open: '张嘴', lips: '厚唇' },
+    beard: { none: '无胡须', stubble: '胡茬', mustache: '八字胡', goatee: '山羊胡', full: '络腮胡', longbeard: '长须' },
+    gear: {
+      none: '无', hood: '兜帽', cowl: '修士兜帽', coif: '头巾', veil: '头纱',
+      wimple: '修女头巾', helmet: '头盔', crown: '王冠', cap: '软帽', straw: '草帽',
+      tonsure: '修士剃发', circlet: '金发环', wreath: '花环', mitre: '主教冠'
+    },
+    cloth: {
+      tunic: '束腰布衣', robe: '长袍', chainmail: '锁子甲', gambeson: '绗缝棉甲',
+      doublet: '紧身外衣', cloak: '斗篷', rags: '破布衣'
+    },
+    bg: {
+      parchment: '羊皮纸', stone: '石墙', wood: '木墙', forest: '林地', sky: '天空',
+      tavern: '酒馆', chapel: '礼拜堂', none: '透明'
+    },
+    dye: {
+      madder: '茜草红', ochre: '赭石', weld: '芥黄', moss: '苔绿', pine: '松绿',
+      slate: '青灰', woad: '菘蓝', ink: '墨紫', murrey: '绛紫', ash: '灰白', lime: '石灰',
+      darkmadder: '深茜草红', darkochre: '深赭石', darkweld: '深芥黄', darkmoss: '深苔绿',
+      darkpine: '深松绿', darkslate: '深青灰', darkwoad: '深菘蓝', darkink: '深墨紫',
+      darkmurrey: '深绛紫', darkash: '深灰白', darklime: '深石灰',
+      palemadder: '浅茜草红', paleochre: '浅赭石', paleweld: '浅芥黄', palemoss: '浅苔绿',
+      palepine: '浅松绿', paleslate: '浅青灰', palewoad: '浅菘蓝', paleink: '浅墨紫',
+      palemurrey: '浅绛紫', paleash: '浅灰白', palelime: '浅石灰'
+    },
+    hairColor: {
+      silver: '银白', grizzled: '花白', black: '乌黑', flaxen: '亚麻金', chestnut: '栗棕',
+      auburn: '赤褐', deepchestnut: '深栗', golden: '麦金', brown: '棕褐'
+    },
+    skinTone: { fair: '白皙', lightwheat: '浅麦', wheat: '小麦', olive: '橄榄', deepbrown: '深褐', ebony: '黝黑' }
+  },
+  en: {
+    langName: 'English',
+    title: 'Medieval Pixel Portrait Generator',
+    headline: 'Medieval Folk', headlineSub: 'random pixel portrait · 48×48',
+    roll: 'Roll one', rollKbd: 'space',
+    save: 'Download PNG', copy: 'Copy seed', copyDone: 'Copied', grid: 'Grid',
+    gridTitle: 'Show pixel grid',
+    seedLabel: 'SEED', apply: 'Generate',
+    seedHint: 'The same seed always grows the same person. Digits or any text both work.',
+    profileLabel: 'PROFILE', forgeLabel: 'FORGE', recentLabel: 'RECENT',
+    random: 'Random',
+    forgeReset: 'Release all locks', forgeResetTitle: 'Clears locks only, keeps the seed',
+    lockedHint: 'Locked. Choose “Random” to release.',
+    recentEmpty: 'Nothing yet. Roll a few.',
+    hairLocked: 'The current headwear hides the hair',
+    fields: {
+      role: 'Role', sex: 'Sex', age: 'Age', shape: 'Face', hair: 'Hair',
+      eye: 'Eyes', brow: 'Brows', mouth: 'Mouth', beard: 'Beard', gear: 'Headwear',
+      bg: 'Backdrop', build: 'Build'
+    },
+    swatches: { skin: 'Skin', hairC: 'Hair colour', clothC: 'Cloth', eyeC: 'Eye colour' },
+    profile: {
+      cloth: 'Dress', gear: 'Headwear', hair: 'Hair', face: 'Face', eye: 'Eyes',
+      brow: 'Brows', mouth: 'Mouth', beard: 'Beard', skin: 'Skin', hairColor: 'Hair colour',
+      build: 'Build', bg: 'Backdrop'
+    },
+    sex: { M: 'Man', F: 'Woman' },
+    build: { slim: 'Slim', normal: 'Average', broad: 'Burly' },
+    age: { child: 'Child', youth: 'Youth', prime: 'Prime', middle: 'Middle-aged', elder: 'Elder' },
+    role: {
+      farmer: 'Farmer', monk: 'Monk', knight: 'Knight', noble: 'Noble', soldier: 'Soldier',
+      merchant: 'Merchant', bard: 'Bard', beggar: 'Beggar', nun: 'Nun', witch: 'Witch',
+      blacksmith: 'Blacksmith', archer: 'Archer', bishop: 'Bishop', pilgrim: 'Pilgrim',
+      alchemist: 'Alchemist', fisher: 'Fisher', maid: 'Maid', mercenary: 'Mercenary'
+    },
+    shape: { round: 'Round', square: 'Square', pointed: 'Pointed', heart: 'Heart', long: 'Long', wide: 'Wide' },
+    hair: {
+      buzz: 'Buzz cut', short: 'Short', fringe: 'Fringe', sidepart: 'Side part', long: 'Long straight',
+      bob: 'Bob', ponytail: 'Ponytail', twin: 'Twin braids', curly: 'Curly', afro: 'Afro',
+      bun: 'Top knot', mohawk: 'Mohawk', wavy: 'Long wavy', receding: 'Receding', bald: 'Bald',
+      covered: 'Covered'
+    },
+    eye: { dot: 'Dot', normal: 'Standard', tall: 'Narrow tall', narrow: 'Squint', big: 'Wide', sharp: 'Upturned' },
+    brow: { flat: 'Flat', arch: 'Arched', thick: 'Thick', angry: 'Angled', thin: 'Thin', worry: 'Worried' },
+    mouth: { neutral: 'Neutral', smile: 'Smile', grin: 'Grin', frown: 'Frown', smirk: 'Smirk', open: 'Open', lips: 'Full lips' },
+    beard: { none: 'Clean-shaven', stubble: 'Stubble', mustache: 'Moustache', goatee: 'Goatee', full: 'Full beard', longbeard: 'Long beard' },
+    gear: {
+      none: 'None', hood: 'Hood', cowl: 'Monk cowl', coif: 'Coif', veil: 'Veil',
+      wimple: 'Wimple', helmet: 'Helmet', crown: 'Crown', cap: 'Felt cap', straw: 'Straw hat',
+      tonsure: 'Tonsure', circlet: 'Circlet', wreath: 'Wreath', mitre: 'Mitre'
+    },
+    cloth: {
+      tunic: 'Belted tunic', robe: 'Robe', chainmail: 'Chainmail', gambeson: 'Padded gambeson',
+      doublet: 'Doublet', cloak: 'Cloak', rags: 'Rags'
+    },
+    bg: {
+      parchment: 'Parchment', stone: 'Stone wall', wood: 'Plank wall', forest: 'Woodland',
+      sky: 'Night sky', tavern: 'Tavern', chapel: 'Chapel', none: 'Transparent'
+    },
+    dye: {
+      madder: 'Madder red', ochre: 'Ochre', weld: 'Weld yellow', moss: 'Moss green',
+      pine: 'Pine green', slate: 'Slate', woad: 'Woad blue', ink: 'Ink violet', murrey: 'Murrey',
+      ash: 'Ash grey', lime: 'Lime white',
+      darkmadder: 'Dark madder', darkochre: 'Dark ochre', darkweld: 'Dark weld',
+      darkmoss: 'Dark moss', darkpine: 'Dark pine', darkslate: 'Dark slate',
+      darkwoad: 'Dark woad', darkink: 'Dark ink', darkmurrey: 'Dark murrey',
+      darkash: 'Dark ash', darklime: 'Dark lime',
+      palemadder: 'Pale madder', paleochre: 'Pale ochre', paleweld: 'Pale weld',
+      palemoss: 'Pale moss', palepine: 'Pale pine', paleslate: 'Pale slate',
+      palewoad: 'Pale woad', paleink: 'Pale ink', palemurrey: 'Pale murrey',
+      paleash: 'Pale ash', palelime: 'Pale lime'
+    },
+    hairColor: {
+      silver: 'Silver', grizzled: 'Grizzled', black: 'Black', flaxen: 'Flaxen', chestnut: 'Chestnut',
+      auburn: 'Auburn', deepchestnut: 'Deep chestnut', golden: 'Golden', brown: 'Brown'
+    },
+    skinTone: { fair: 'Fair', lightwheat: 'Light wheat', wheat: 'Wheat', olive: 'Olive', deepbrown: 'Deep brown', ebony: 'Ebony' }
+  }
+};
+
+/* ---------- 当前语言 ---------- */
+const LANG_KEY = 'pxperson.lang';
+let lang = 'zh';
+try {
+  const saved = localStorage.getItem(LANG_KEY);
+  if (saved === 'zh' || saved === 'en') lang = saved;
+  else if (!/^zh/i.test(navigator.language || '')) lang = 'en';
+} catch(e){
+  if (!/^zh/i.test(navigator.language || '')) lang = 'en';
+}
+const t = k => (I18N[lang] && I18N[lang][k] != null ? I18N[lang][k] : I18N.zh[k]);
+// 分组词典取值：group 如 'role' / 'gear' / 'age'
+const tg = (group, key) => {
+  const g = I18N[lang][group] || {};
+  if (g[key] != null) return g[key];
+  const z = I18N.zh[group] || {};
+  return z[key] != null ? z[key] : key;
+};
+
+/* ---------- DOM ---------- */
+const view = document.getElementById('view');
+const seedInput = document.getElementById('seed');
+const traitsEl = document.getElementById('traits');
+const recentEl = document.getElementById('recent');
+const forgeEl = document.getElementById('forge');
+const frameEl = document.getElementById('frame');
+const rollBtn = document.getElementById('roll');
+const saveBtn = document.getElementById('save');
+const copyBtn = document.getElementById('copy');
+const gridBtn = document.getElementById('toggleGrid');
+const resetBtn = document.getElementById('forgeReset');
+
+let current = { seed: 1024, pixels: null, info: null };
+
+/* ---- 定制项：null 表示跟随种子随机 ---- */
+const lockKeys = ['role','sex','age','shape','hair','eye','brow','mouth','beard','gear','bg','build','skin','hairC','clothC','eyeC'];
+const lock = {};
+lockKeys.forEach(k => lock[k] = null);
+
+const SHAPE_LIST = ['round', 'square', 'pointed', 'heart', 'long', 'wide'];
+const HAIR_LIST = ['buzz', 'short', 'sidepart', 'fringe', 'curly', 'receding', 'bald',
+                   'long', 'bob', 'ponytail', 'twin', 'afro', 'bun', 'mohawk', 'wavy'];
+const GEAR_LIST = ['none', 'hood', 'cowl', 'coif', 'veil', 'wimple', 'helmet',
+                   'crown', 'circlet', 'wreath', 'mitre', 'cap', 'straw', 'tonsure'];
+const BG_LIST = ['parchment', 'stone', 'wood', 'forest', 'sky', 'tavern', 'chapel', 'none'];
+const BEARD_LIST = ['none', 'stubble', 'mustache', 'goatee', 'full', 'longbeard'];
+const BUILD_LIST = ['slim', 'normal', 'broad'];
+const SKIN_SW = ['#f2cba6', '#e8b990', '#dda57a', '#c98a5e', '#b3774d', '#96603c', '#7a4a2c', '#5a3620'];
+const HAIR_SW = ['#2a2230', '#402a1a', '#553420', '#76492a', '#9c6f37', '#cfa24c', '#a84a2a', '#b8b2a8'];
+const CLOTH_SW = ['#6b2f45', '#3f4a7a', '#4a6b3f', '#7a3f2f', '#5a3f6b', '#8a7350', '#2f3540', '#4a5060'];
+
+/* ---------- 静态文案上屏 ---------- */
+function applyStaticText(){
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.title = t('title');
+
+  const hl = document.querySelector('.headline');
+  hl.innerHTML = `${t('headline')}<span>${t('headlineSub')}</span>`;
+
+  rollBtn.innerHTML = `${t('roll')}<kbd>${t('rollKbd')}</kbd>`;
+  saveBtn.textContent = t('save');
+  copyBtn.textContent = t('copy');
+  gridBtn.textContent = t('grid');
+  gridBtn.title = t('gridTitle');
+
+  document.querySelector('#seedBlock .label').textContent = t('seedLabel');
+  document.getElementById('apply').textContent = t('apply');
+  document.querySelector('#seedBlock .hint').textContent = t('seedHint');
+  document.querySelector('#profileBlock .label').textContent = t('profileLabel');
+  document.querySelector('#forgeBlock .label').textContent = t('forgeLabel');
+  document.querySelector('#recentBlock .label').textContent = t('recentLabel');
+
+  resetBtn.textContent = t('forgeReset');
+  resetBtn.title = t('forgeResetTitle');
+
+  // 语言切换下拉：中英各自显示母语名，选中即当前语言
+  const sel = document.getElementById('langSel');
+  if (sel){
+    sel.querySelector('option[value="zh"]').textContent = '中文';
+    sel.querySelector('option[value="en"]').textContent = 'English';
+    sel.value = lang;
+    sel.title = lang === 'zh' ? '界面语言' : 'Interface language';
+  }
+}
+
+/* ---------- 定制面板 ---------- */
+const swat = (label, key, colors) => `
+  <div class="field wide">
+    <span>${label}</span>
+    <div class="swatches" data-key="${key}">
+      ${colors.map(c => `<button type="button" class="sw" style="background:${c}" data-c="${c}" title="${c}" aria-pressed="false"></button>`).join('')}
+    </div>
+  </div>`;
+
+const opt = (value, text) => `<option value="${value}">${text}</option>`;
+
+function buildForge(){
+  const f = t('fields');
+  forgeEl.innerHTML = `
+    <label class="field wide"><span>${f.role}</span>
+      <select data-key="role">${opt('', t('random'))}${ARCHETYPES.map(a => opt(a.id, tg('role', a.id))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.sex}</span>
+      <select data-key="sex">${opt('', t('random'))}${opt('M', t('sex').M)}${opt('F', t('sex').F)}</select>
+    </label>
+    <label class="field"><span>${f.age}</span>
+      <select data-key="age">${opt('', t('random'))}${AGE_KEYS.map(k => opt(AGE_VALUES[k], tg('age', k))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.shape}</span>
+      <select data-key="shape">${opt('', t('random'))}${SHAPE_LIST.map(v => opt(v, tg('shape', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.hair}</span>
+      <select data-key="hair">${opt('', t('random'))}${HAIR_LIST.map(v => opt(v, tg('hair', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.eye}</span>
+      <select data-key="eye">${opt('', t('random'))}${Object.keys(I18N.zh.eye).map(v => opt(v, tg('eye', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.brow}</span>
+      <select data-key="brow">${opt('', t('random'))}${Object.keys(I18N.zh.brow).map(v => opt(v, tg('brow', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.mouth}</span>
+      <select data-key="mouth">${opt('', t('random'))}${Object.keys(I18N.zh.mouth).map(v => opt(v, tg('mouth', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.beard}</span>
+      <select data-key="beard">${opt('', t('random'))}${BEARD_LIST.map(v => opt(v, tg('beard', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.build}</span>
+      <select data-key="build">${opt('', t('random'))}${BUILD_LIST.map(v => opt(v, tg('build', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.gear}</span>
+      <select data-key="gear">${opt('', t('random'))}${GEAR_LIST.map(v => opt(v, tg('gear', v))).join('')}</select>
+    </label>
+    <label class="field"><span>${f.bg}</span>
+      <select data-key="bg">${opt('', t('random'))}${BG_LIST.map(v => opt(v, tg('bg', v))).join('')}</select>
+    </label>
+    ${swat(t('swatches').skin, 'skin', SKIN_SW)}
+    ${swat(t('swatches').hairC, 'hairC', HAIR_SW)}
+    ${swat(t('swatches').clothC, 'clothC', CLOTH_SW)}
+    ${swat(t('swatches').eyeC, 'eyeC', EYE_COLORS)}
+  `;
+  bindForge();
+  syncForge();
+}
+
+function bindForge(){
+  forgeEl.querySelectorAll('select').forEach(s => {
+    s.addEventListener('change', () => {
+      const k = s.dataset.key;
+      const v = s.value;
+      lock[k] = v === '' ? null : (k === 'age' ? Number(v) : v);
+      // 身份硬锁性别时，清掉冲突的性别锁定
+      if (k === 'role' && v){
+        const a = ARCHETYPES.find(x => x.id === v);
+        if (a && a.sex){
+          lock.sex = null;
+          const sexSel = forgeEl.querySelector('select[data-key="sex"]');
+          if (sexSel) sexSel.value = '';
+        }
+      }
+      redraw();
+    });
+  });
+
+  forgeEl.querySelectorAll('.swatches').forEach(wrap => {
+    wrap.addEventListener('click', e => {
+      const b = e.target.closest('.sw');
+      if (!b) return;
+      const k = wrap.dataset.key, c = b.dataset.c;
+      lock[k] = (lock[k] === c) ? null : c;
+      syncForge();
+      redraw();
+    });
+  });
+}
+
+function syncForge(){
+  forgeEl.querySelectorAll('select').forEach(s => {
+    const v = lock[s.dataset.key];
+    s.value = v == null ? '' : String(v);
+    // 已锁定的字段给个明确标记，避免"我改了但不知道有没有生效"
+    s.classList.toggle('locked', v != null);
+    s.title = v != null ? t('lockedHint') : '';
+  });
+  forgeEl.querySelectorAll('.swatches').forEach(wrap => {
+    const k = wrap.dataset.key;
+    let any = false;
+    wrap.querySelectorAll('.sw').forEach(b => {
+      const on = lock[k] === b.dataset.c;
+      if (on) any = true;
+      b.setAttribute('aria-pressed', String(on));
+    });
+    wrap.classList.toggle('locked', any);
+  });
+
+  const count = lockKeys.filter(k => lock[k] != null).length;
+  resetBtn.disabled = count === 0;
+  resetBtn.textContent = count ? `${t('forgeReset')} (${count})` : t('forgeReset');
+}
+
+/* ---------- 档案 ---------- */
+function renderProfile(info){
+  const P = t('profile');
+  const items = [
+    [P.cloth, tg('cloth', info.cloth) + ' · ' + tg('dye', info.dye), true],
+    [P.gear, tg('gear', info.gear)],
+    [P.hair, tg('hair', info.hair)],
+    [P.face, tg('shape', info.face)],
+    [P.eye, tg('eye', info.eye)],
+    [P.brow, tg('brow', info.brow)],
+    [P.mouth, tg('mouth', info.mouth)],
+    [P.beard, info.beard === 'none' ? '' : tg('beard', info.beard)],
+    [P.skin, tg('skinTone', info.skinTone)],
+    [P.hairColor, tg('hairColor', info.hairColor)],
+    [P.build, tg('build', info.build)],
+    [P.bg, tg('bg', info.bg)]
+  ].filter(([, v]) => v && v !== '—');
+
+  traitsEl.innerHTML = `
+    <div class="profile-hero">
+      <div class="profile-role">${tg('role', info.role)}</div>
+      <div class="profile-badge">${tg('sex', info.sex)} · ${tg('age', info.age)}</div>
+    </div>
+    <div class="profile-grid">
+      ${items.map(([k, v, wide]) => `
+        <div class="profile-item${wide ? ' wide' : ''}" title="${k}">
+          <span>${k}</span>
+          <b>${v}</b>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+/* ---------- 绘制 ---------- */
+function redraw(){
+  show(current.seed, false);
+  syncForge();
+}
+
+function show(seed, pushRecent, label){
+  const res = generate(seed, lock);
+  const px = composite(res);
+  drawTo(view, px, 8);
+  current = { seed, pixels: px, info: res.info };
+
+  renderProfile(res.info);
+
+  // 头饰遮住发型时禁用发型下拉并说明原因
+  const hairSel = forgeEl.querySelector('select[data-key="hair"]');
+  if (hairSel){
+    const covered = ['hood','cowl','coif','veil','wimple','helmet','mitre'].includes(res.info.params.gear);
+    hairSel.disabled = covered;
+    hairSel.title = covered ? t('hairLocked') : '';
+  }
+
+  // 输入框显示用户实际填的文本，数字种子也原样保留
+  seedInput.value = label != null ? label : seed;
+  if (pushRecent) addRecent(seed);
+  else refreshRecentCurrent();
+}
+
+// 只更新"当前是哪一张"的高亮，不重建缩略图
+function refreshRecentCurrent(){
+  recentEl.querySelectorAll('canvas').forEach((cv, i) => {
+    const it = recent[i];
+    if (it) cv.classList.toggle('on', it.seed === current.seed);
+  });
+}
+
+/* ---------- 最近记录（记录 seed 与它当初填的文本） ---------- */
+let recent = [];
+try { recent = JSON.parse(localStorage.getItem('pxperson.recent') || '[]'); } catch(e){ recent = []; }
+if (!Array.isArray(recent)) recent = [];
+// 兼容旧版只存数字的格式
+recent = recent.map(v => (typeof v === 'number' ? { seed: v, label: String(v) } : v))
+               .filter(v => v && typeof v.seed === 'number');
+
+function addRecent(seed){
+  const label = seedInput.value.trim() || String(seed);
+  recent = [{ seed, label }, ...recent.filter(v => v.seed !== seed)].slice(0, 12);
+  try { localStorage.setItem('pxperson.recent', JSON.stringify(recent)); } catch(e){}
+  renderRecent();
+}
+function renderRecent(){
+  recentEl.innerHTML = '';
+  if (!recent.length){
+    recentEl.innerHTML = `<p class="hint" style="margin:0">${t('recentEmpty')}</p>`;
+    return;
+  }
+  for (const it of recent){
+    const cv = document.createElement('canvas');
+    drawTo(cv, composite(generate(it.seed)), 1);
+    cv.title = it.label;
+    if (it.seed === current.seed) cv.classList.add('on');
+    cv.addEventListener('click', () => {
+      show(it.seed, true, it.label);
+      syncForge();
+    });
+    recentEl.appendChild(cv);
+  }
+}
+
+/* ---------- 操作 ---------- */
+function roll(){
+  let s;
+  do { s = Math.floor(Math.random() * 999999); } while (s === current.seed);
+  show(s, true);
+  syncForge();
+}
+
+function flash(btn, text){
+  const old = btn.textContent;
+  btn.textContent = text;
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => { btn.textContent = old; }, 1200);
+}
+
+rollBtn.addEventListener('click', roll);
+
+resetBtn.addEventListener('click', () => {
+  lockKeys.forEach(k => lock[k] = null);
+  syncForge();
+  redraw();
+});
+
+document.getElementById('apply').addEventListener('click', () => {
+  const raw = seedInput.value.trim();
+  if (raw === ''){ seedInput.focus(); return; }
+  const seed = /^\d+$/.test(raw) ? Number(raw) : hashStr(raw);
+  show(seed, true, raw);
+  syncForge();
+});
+
+seedInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); document.getElementById('apply').click(); return; }
+  if (e.key === 'Escape'){ seedInput.blur(); return; }
+  // 上下键翻种子历史，省得来回点缩略图
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && recent.length){
+    e.preventDefault();
+    const idx = recent.findIndex(v => v.seed === current.seed);
+    const step = e.key === 'ArrowUp' ? 1 : -1;
+    const next = recent[((idx < 0 ? -1 : idx) + step + recent.length) % recent.length];
+    if (next){
+      show(next.seed, false, next.label);
+      syncForge();
+    }
+  }
+});
+
+// 空格随机；输入框与下拉聚焦时不拦截
+document.addEventListener('keydown', e => {
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (e.code === 'Space' && tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA'){
+    e.preventDefault();
+    roll();
+  }
+});
+
+saveBtn.addEventListener('click', () => {
+  const out = document.createElement('canvas');
+  drawTo(out, current.pixels, 8);
+  const a = document.createElement('a');
+  a.download = `pixel-person-${current.seed}.png`;
+  a.href = out.toDataURL('image/png');
+  a.click();
+});
+
+copyBtn.addEventListener('click', async () => {
+  // 复制用户能重新粘贴回去的那个值：填的是 merlin 就复制 merlin
+  const text = (seedInput.value || '').trim() || String(current.seed);
+  try {
+    await navigator.clipboard.writeText(text);
+    flash(copyBtn, t('copyDone'));
+  } catch(e){
+    // 非安全上下文（file://）下 clipboard 不可用，退回临时 textarea
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch(_){}
+    document.body.removeChild(ta);
+    flash(copyBtn, ok ? t('copyDone') : 'Ctrl+C');
+  }
+});
+
+gridBtn.addEventListener('click', () => {
+  const on = frameEl.classList.toggle('grid-on');
+  gridBtn.classList.toggle('active', on);
+  gridBtn.setAttribute('aria-pressed', String(on));
+});
+
+/* ---------- 语言切换 ---------- */
+function setLang(next){
+  if (next !== 'zh' && next !== 'en') return;
+  lang = next;
+  try { localStorage.setItem(LANG_KEY, lang); } catch(e){}
+
+  applyStaticText();
+  buildForge();
+  renderProfile(current.info);
+  renderRecent();
+
+  // 重绘后恢复“发型被遮挡”的禁用状态
+  if (current.info){
+    const hairSel = forgeEl.querySelector('select[data-key="hair"]');
+    const covered = ['hood','cowl','coif','veil','wimple','helmet','mitre'].includes(current.info.params.gear);
+    hairSel.disabled = covered;
+    hairSel.title = covered ? t('hairLocked') : '';
+  }
+}
+
+document.getElementById('langSel').addEventListener('change', e => setLang(e.target.value));
+
+/* ---------- 启动 ---------- */
+applyStaticText();
+buildForge();
+
+// URL ?s=merlin 与 ?s=1024 都能用；文字种子在输入框里保持原样
+const urlSeed = new URLSearchParams(location.search).get('s');
+if (urlSeed){
+  const isNum = /^\d+$/.test(urlSeed);
+  show(isNum ? Number(urlSeed) : hashStr(urlSeed), true, urlSeed);
+} else {
+  show(1024, true, '1024');
+}
+</script>
+</body>
+</html>
