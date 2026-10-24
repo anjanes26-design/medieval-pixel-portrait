@@ -153,6 +153,30 @@
     clip:rect(0 0 0 0); overflow:hidden; white-space:nowrap;
   }
 
+  /* ---- 三档同屏 ---- */
+  .sizes{
+    display:flex; gap:10px; align-items:flex-end; justify-content:center;
+  }
+  .sizebox{
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .sizebox canvas{
+    image-rendering:pixelated; display:block;
+    background:var(--panel2); border:1px solid var(--line); border-radius:6px;
+  }
+  .sizebox span{
+    font-size:11px; color:var(--muted); letter-spacing:.06em;
+  }
+  .sizebox.main canvas{ border-color:var(--accent); }
+  .sizebox.main span{ color:var(--fg); font-weight:600; }
+  #pvS{ width:96px; height:96px; }     /* 24 × 4 整数倍 */
+  #pvM{ width:192px; height:192px; }   /* 48 × 4 整数倍 */
+  #pvL{ width:192px; height:192px; }   /* 96 × 2 整数倍 */
+  @media (max-width:430px){
+    #pvS{ width:72px; height:72px; }
+    #pvM, #pvL{ width:144px; height:144px; }
+  }
+
   .recent{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
   .recent canvas{
     width:100%; aspect-ratio:1; image-rendering:pixelated; border-radius:5px;
@@ -213,6 +237,11 @@
       <button id="copy">复制种子</button>
       <button id="toggleGrid" title="显示像素网格">网格</button>
     </div>
+    <div class="sizes" id="sizes">
+      <div class="sizebox"><canvas id="pvS" width="24" height="24"></canvas><span>S · 24</span></div>
+      <div class="sizebox main"><canvas id="pvM" width="48" height="48"></canvas><span>M · 48</span></div>
+      <div class="sizebox"><canvas id="pvL" width="96" height="96"></canvas><span>L · 96</span></div>
+    </div>
     <div class="block" id="recentBlock">
       <div class="label">最近 RECENT</div>
       <div id="recent" class="recent"></div>
@@ -250,8 +279,10 @@
    48×48 像素人物生成器
    思路：分层绘制 + 有限调色板 + 外轮廓描边
    层序：背景 → 后发 → 身体/衣服 → 脸 → 前发 → 五官 → 配饰 → 描边
+   支持 24 / 48 / 96 三档：每档独立绘制，大图加细节、小图做减法
    ========================================================= */
-const W = 48, H = 48;
+const W = 48, H = 48;      // 默认档
+const SIZES = { S: 24, M: 48, L: 96 };
 const OUTLINE = '#171120';
 
 /* ---------- 随机 ---------- */
@@ -490,13 +521,15 @@ function fillHead(g, cx, cy, rx, ry, shape, color, exp, lim){
 /* ---------- 主体生成 ---------- */
 function generate(seed, ov){
   ov = ov || {};
+  const size = ov.size || 48;                 // 24 / 48 / 96，每档独立绘制
   const r = mulberry32(seed);
   const pick = a => a[(r() * a.length) | 0];
   const chance = p => r() < p;
   const ri = (a, b) => a + Math.floor(r() * (b - a + 1));
 
-  const g = new Grid(W, H);
-  const bg = new Grid(W, H);
+  // 坐标缩放器：把 48 档设计坐标映射到当前档（已在上方定义 v = n × size/48）
+  const g = new Grid(size, size);
+  const bg = new Grid(size, size);
 
   /* ---- 基因 ---- */
   const ageBase = 0.12 + Math.pow(r(), 0.9) * 0.88;
@@ -513,15 +546,24 @@ function generate(seed, ov){
     : pick(['square', 'square', 'round', 'wide', 'long', 'pointed', 'heart']);
   const shape = ov.shape || shapeBase;
   // 五官不对称漂移：整张脸特征（眼/眉/鼻/嘴）共享一个微偏移，人物不再轴对称
-  const cx = 24 + (chance(0.35) ? ri(-1, 1) : 0);
-  const cy = 17 + ri(-1, 1);
+  const cx48 = 24 + (chance(0.35) ? ri(-1, 1) : 0);
+  const cy48 = 17 + ri(-1, 1);
   const feaJit = chance(0.6) ? ri(-1, 1) : 0;   // 五官横向偏移
   // 比例联动：宽脸配短脸，窄脸配长脸，避免"窄而长"的布丁脸
   // 男 8-10 宽、女 6-8 宽；脸长按脸宽反调 ±1
-  const rx = gender === 'F' ? ri(6, 8) : ri(8, 10);
-  const ry = Math.max(9, Math.min(12,
-    (gender === 'F' ? 10 : 11) + Math.round((8.5 - rx) * 0.5)
+  // 96 档脸再宽 1px：大图有空间放更多面部细节
+  const rxBase = gender === 'F' ? ri(6, 8) : ri(8, 10);
+  const rx48 = rxBase + (size >= 96 ? 1 : 0);
+  const ry48 = Math.max(9, Math.min(12,
+    (gender === 'F' ? 10 : 11) + Math.round((8.5 - rxBase) * 0.5)
   )) + (shape === 'long' ? 1 : 0);
+  // 中心与半径落到当前档：24 档 = 48 档值 ×0.5，48 档原值，96 档 ×2
+  // 此后所有绘制代码里的 cx/cy/rx/ry 都是当前档坐标
+  const cx = Math.round(cx48 * (size / 48));
+  const cy = Math.round(cy48 * (size / 48));
+  const rx = Math.max(2, Math.round(rx48 * (size / 48)));
+  const ry = Math.max(4, Math.round(ry48 * (size / 48)));
+  const v = n => Math.round(n * (size / 48));
 
   let skin = pick(SKINS);
   if (age > 0.7) skin = mixHex(skin, '#c9a98a', (age - 0.7) * 1.4);
@@ -542,6 +584,8 @@ function generate(seed, ov){
 
   const eyeC = ov.eyeC || pick(EYE_COLORS);
   const eyeWhite = '#e8e0d2';
+  // 24 档做减法：省略织纹、皱纹等细节，图标干净；48/96 全保留
+  const detail = size >= 48;
 
   let hairStyle = gender === 'F' ? pick(HAIR_F) : pick(HAIR_M);
   if (age > 0.72 && chance(0.5) && hairStyle !== 'bald')
@@ -578,45 +622,48 @@ function generate(seed, ov){
   }
 
   /* ---- 背景（中世纪场景） ---- */
+  // 石墙/木墙的砖块尺寸随画布缩放；96 档背景加一轮暗角聚焦人物
   const bgBase = pick(['parchment', 'parchment', 'stone', 'wood', 'wood', 'forest', 'sky', 'none']);
   const bgKind = ov.bg || bgBase;
   if (bgKind === 'parchment'){
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
       let c = '#d8c9a3';
       if ((x * 3 + y * 5) % 37 === 0) c = '#c8b891';
-      const edge = Math.min(x, y, W - 1 - x, H - 1 - y);
+      const edge = Math.min(x, y, size - 1 - x, size - 1 - y);
       if (edge < 3) c = mixHex(c, '#8a7752', (3 - edge) * 0.22);
       bg.set(x, y, c);
     }
   } else if (bgKind === 'stone'){
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
-      const row = Math.floor(y / 8), off = (row % 2) * 8;
-      const c = (Math.floor((x + off) / 8) % 2) ? '#5a5a60' : '#4a4a50';
+    const brick = size >= 96 ? 16 : 8;   // 砖块随画布缩放
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
+      const row = Math.floor(y / brick), off = (row % 2) * brick;
+      const c = (Math.floor((x + off) / brick) % 2) ? '#5a5a60' : '#4a4a50';
       bg.set(x, y, c);
-      if (y % 8 === 0 || (x + off) % 8 === 0) bg.set(x, y, '#3a3a40');
+      if (y % brick === 0 || (x + off) % brick === 0) bg.set(x, y, '#3a3a40');
     }
   } else if (bgKind === 'wood'){
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
-      const plank = Math.floor(x / 12);
+    const plankW = size >= 96 ? 24 : 12;
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
+      const plank = Math.floor(x / plankW);
       let c = plank % 2 ? '#5a4229' : '#6b4f33';
-      if (x % 12 === 0) c = '#3a2a1a';
+      if (x % plankW === 0) c = '#3a2a1a';
       if ((y + plank * 7) % 11 === 0) c = shade(c, -0.15);
       bg.set(x, y, c);
     }
   } else if (bgKind === 'forest'){
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
       let c = y < 14 ? '#2f3f34' : '#2a3a2c';
       if ((x * 7 + y * 3) % 17 === 0) c = '#243327';
       bg.set(x, y, c);
     }
   } else if (bgKind === 'sky'){
-    for (let y = 0; y < H; y++){
-      const c = mixHex('#4a5870', '#2a3040', y / H);
-      for (let x = 0; x < W; x++) bg.set(x, y, ((x * 7 + y * 3) % 41 === 0) ? shade(c, 0.09) : c);
+    for (let y = 0; y < size; y++){
+      const c = mixHex('#4a5870', '#2a3040', y / size);
+      for (let x = 0; x < size; x++) bg.set(x, y, ((x * 7 + y * 3) % 41 === 0) ? shade(c, 0.09) : c);
     }
   } else if (bgKind === 'tavern'){
     // 酒馆：深色木墙 + 一盏悬挂的油灯暖光
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
       const beam = Math.floor(y / 14);
       let c = beam % 2 ? '#3a2a1c' : '#463222';
       if (y % 14 === 0) c = '#241a10';
@@ -630,8 +677,8 @@ function generate(seed, ov){
     bg.set(lx, ly, '#e8b44f'); bg.set(lx, ly - 1, '#f4d489');
   } else if (bgKind === 'chapel'){
     // 礼拜堂：石墙 + 两侧窄彩窗，颜色压低避免抢人物
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
-      let c = mixHex('#4a4f5c', '#2a2f38', y / H);
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++){
+      let c = mixHex('#4a4f5c', '#2a2f38', y / size);
       if (y % 8 === 0) c = shade(c, -0.1);
       const inWin = (x >= 3 && x <= 7) || (x >= 40 && x <= 44);
       if (inWin && y >= 5 && y <= 21){
@@ -653,7 +700,7 @@ function generate(seed, ov){
   const hairBack = (c, d) => {
     if (hairStyle === 'long' || hairStyle === 'wavy'){
       // 女性：长发更宽更长，垂到画面底，与男性短发形成强对比
-      const lenY = gender === 'F' ? H - 1 : cy + 9;
+      const lenY = gender === 'F' ? size - 1 : cy + 9;
       for (let y = cy - 5; y <= lenY; y++){
         const w = (y < cy) ? rx + 2 : rx + 1 + Math.round((y - cy) * 0.1);
         for (let x = cx - w; x <= cx + w; x++){
@@ -674,7 +721,7 @@ function generate(seed, ov){
       }
     }
     if (hairStyle === 'ponytail'){
-      const lenY = gender === 'F' ? H - 2 : cy + 15;
+      const lenY = gender === 'F' ? size - 2 : cy + 15;
       for (let y = cy - 6; y <= lenY; y++){
         const t = (y - (cy - 6)) / (lenY - cy + 6);
         const px = cx + rx + 1 + Math.round(Math.sin(t * 2.4) * 1.8);
@@ -738,7 +785,7 @@ function generate(seed, ov){
       g.set(x, y, x > cx ? skinD : skin);
 
   const shirtHW = y => {
-    const t = Math.min(1, Math.max(0, (y - neckTop) / (H - neckTop)));
+    const t = Math.min(1, Math.max(0, (y - neckTop) / (size - neckTop)));
     let w = (4 + 18 * Math.pow(t, 0.4)) * buildW;
     if (gender === 'F') w *= 0.82 + 0.34 * t * t;   // 明显收腰 + 裙摆外扩
     // 男性最宽处（画面底部）不超出画布，肩部从领口自然张开而不是方肩直上
@@ -746,14 +793,30 @@ function generate(seed, ov){
   };
 
   // 躯干
-  for (let y = neckTop; y < H; y++){
+  for (let y = neckTop; y < size; y++){
     const hw = shirtHW(y);
     for (let x = cx - hw; x <= cx + hw; x++){
       let c = clothC;
       if (x >= cx + hw - 1) c = clothD;
       else if (x <= cx - hw) c = clothL;
-      if ((x * 5 + y * 7) % 31 === 0) c = shade(c, -0.08);   // 亚麻织纹
+      if (detail && (x * 5 + y * 7) % 31 === 0) c = shade(c, -0.08);   // 亚麻织纹（24 档省略）
       g.set(x, y, c);
+    }
+  }
+
+  // 96 档专属：衣服织锦纹样（菱形点缀），只有大画布放得下
+  if (size >= 96){
+    const patC = shade(trimC, -0.1);
+    const step = 8;
+    for (let y = neckTop + 6; y < size - 4; y += step){
+      const hw = shirtHW(y);
+      for (let x = cx - hw + 3; x <= cx + hw - 3; x += step){
+        const ox = x + ((y / step) % 2 ? step / 2 : 0);
+        // 3px 菱形
+        g.set(ox, y - 1, patC);
+        g.set(ox - 1, y, patC); g.set(ox, y, shade(patC, 0.15)); g.set(ox + 1, y, patC);
+        g.set(ox, y + 1, patC);
+      }
     }
   }
 
@@ -769,7 +832,7 @@ function generate(seed, ov){
   }
 
   // 袖子分界
-  for (let y = neckTop + 4; y < H; y++){
+  for (let y = neckTop + 4; y < size; y++){
     const hw = shirtHW(y);
     const armW = Math.max(3, Math.round(5 * buildW));
     for (const sgn of [-1, 1]){
@@ -847,7 +910,7 @@ function generate(seed, ov){
   }
   if (kind === 'gambeson'){
     // 只留纵向绗缝线，横向压线在 48px 下会变成条纹衬衫
-    for (let y = neckTop; y < H; y++){
+    for (let y = neckTop; y < size; y++){
       const hw = shirtHW(y);
       for (let x = cx - hw + 2; x <= cx + hw - 2; x += 5) g.set(x, y, shade(clothC, -0.13));
     }
@@ -862,7 +925,7 @@ function generate(seed, ov){
     }
   }
   if (kind === 'cloak'){
-    for (let y = neckTop; y < H; y++){
+    for (let y = neckTop; y < size; y++){
       const openW = 1 + Math.round((y - neckTop) * 0.16);
       for (let x = cx - openW; x <= cx + openW; x++) g.set(x, y, '#2a2118');
       g.set(cx - openW - 1, y, clothD); g.set(cx + openW + 1, y, clothD);
@@ -871,7 +934,7 @@ function generate(seed, ov){
     g.set(cx - 2, neckTop + 2, shade(trimC, -0.3)); g.set(cx + 2, neckTop + 2, shade(trimC, -0.3));
   }
   if (arch.apron){
-    for (let y = neckTop + 5; y < H; y++){
+    for (let y = neckTop + 5; y < size; y++){
       const hw = Math.round(shirtHW(y) * 0.55);
       for (let x = cx - hw; x <= cx + hw; x++) g.set(x, y, '#6b5a46');
     }
@@ -1232,8 +1295,8 @@ function generate(seed, ov){
     }
   }
 
-  // 皱纹
-  if (age > 0.62){
+  // 皱纹（24 档省略，图标干净）
+  if (detail && age > 0.62){
     if (chance(0.7)) hline(faceTop + 3, cx - 3, cx + 3, shade(skin, -0.12));
     if (chance(0.5)) hline(faceTop + 5, cx - 2, cx + 2, shade(skin, -0.1));
     if (chance(0.6)){
@@ -1450,6 +1513,7 @@ function generate(seed, ov){
   }
 
   // 后发已在身体之前绘制完毕
+  // （detail 常量已在基因段定义：48/96 档保留细节，24 档做减法）
 
   // 女性露发时的发带
   if (gender === 'F' && gear === 'none' && chance(0.55)){
@@ -1457,6 +1521,55 @@ function generate(seed, ov){
     for (let x = cx - hwB; x <= cx + hwB; x++){
       const c0 = g.get(x, cy - 6);
       if (c0 === hairC || c0 === hairD) g.set(x, cy - 6, trimC);
+    }
+  }
+
+  /* ---- 6.5 96 档专属：身份手持物（画在身体上、脸后，不进 48/24 档） ---- */
+  // cx/cy/shirtHW 已是当前档坐标，直接用；不经过 v() 二次缩放
+  if (size >= 96 && chance(0.65)){
+    const prop = pick(arch.props || ['none']);
+    if (prop !== 'none'){
+      const handY = neckTop + 16;
+      const px = Math.min(size - 5, cx + Math.round(shirtHW(neckTop + 8) * 0.9));
+      const wood = '#8a6a40', woodD = '#4a3520', steel = '#c2c9d1', steelD = '#5e646c', gold = '#d9b043';
+      const pole = (x, y0, y1, c) => { for (let y = y0; y <= y1; y++){ g.set(x, y, shade(c, 0.12)); g.set(x + 1, y, c); g.set(x + 2, y, shade(c, -0.34)); } };
+      switch (prop){
+        case 'sword':
+          pole(px, cy - 8, handY, steel);
+          for (let x = px - 2; x <= px + 4; x++) g.set(x, handY + 1, gold);
+          for (let y = handY + 2; y <= handY + 5; y++){ g.set(px, y, woodD); g.set(px + 1, y, woodD); }
+          break;
+        case 'staff':
+          pole(px, cy - 12, size - 3, wood);
+          for (let y = cy - 20; y <= cy - 10; y++)
+            for (let x = px - 1; x <= px + 3; x++)
+              g.set(x, y, (x === px + 3 || y === cy - 20) ? '#8a6ad0' : '#b79cf0');
+          break;
+        case 'pitchfork':
+          pole(px, cy - 8, size - 3, wood);
+          for (let i = -1; i <= 1; i++) for (let y = cy - 24; y <= cy - 10; y++) g.set(px + 1 + i * 2, y, steelD);
+          break;
+        case 'broom':
+          pole(px, cy - 4, cy + 28, wood);
+          for (let y = cy + 29; y < size - 3; y++)
+            for (let x = px - 3; x <= px + 5; x++) g.set(x, y, ((x + y) % 2) ? '#9a8348' : '#c0a862');
+          break;
+        case 'book':
+          for (let y = neckTop + 8; y <= neckTop + 26; y++)
+            for (let x = cx - 6; x <= cx + 10; x++){
+              const edge = (x === cx - 6 || x === cx + 10 || y === neckTop + 8 || y === neckTop + 26);
+              g.set(x, y, edge ? '#5a2f38' : '#e6dcc2');
+            }
+          g.set(cx + 2, neckTop + 12, gold); g.set(cx + 4, neckTop + 14, gold);
+          break;
+        case 'basket':
+          for (let y = neckTop + 18; y <= neckTop + 34; y++){
+            const t = (y - neckTop - 18) / 16;
+            const w = Math.round(4 + t * 3);
+            for (let x = px - w; x <= px + w; x++) g.set(x, y, ((x + y) % 3 === 0) ? '#8a6a3a' : '#a8874c');
+          }
+          break;
+      }
     }
   }
 
@@ -1489,16 +1602,17 @@ function generate(seed, ov){
 
 /* ---------- 渲染 ---------- */
 function composite(res){
-  const out = new Array(W * H);
+  const n = res.grid.w;   // 任意档位通用
+  const out = new Array(n * n);
   // 人物亮度决定背景是否压暗：亮人物配暗背景、暗人物提背景，保证轮廓分离
   let lumaSum = 0, lumaN = 0;
-  for (let i = 0; i < W * H; i++){
+  for (let i = 0; i < n * n; i++){
     const c = res.grid.d[i];
     if (c){ const [r, g, b] = rgbOf(c); lumaSum += (0.299 * r + 0.587 * g + 0.114 * b); lumaN++; }
   }
   const subjL = lumaN ? lumaSum / lumaN / 255 : 0.5;
   const adj = subjL > 0.55 ? -0.22 : (subjL < 0.35 ? 0.10 : 0);   // 主体越亮背景越压
-  for (let i = 0; i < W * H; i++){
+  for (let i = 0; i < n * n; i++){
     const c = res.grid.d[i];
     if (c){ out[i] = c; continue; }
     const b = res.bg.d[i];
@@ -1506,12 +1620,13 @@ function composite(res){
   }
   return out;
 }
-function drawTo(canvas, pixels, scale){
+function drawTo(canvas, pixels, scale, n){
+  n = n || W;   // 默认 48 档
   const ctx = canvas.getContext('2d');
-  canvas.width = W * scale; canvas.height = H * scale;
+  canvas.width = n * scale; canvas.height = n * scale;
   ctx.imageSmoothingEnabled = false;
-  const img = ctx.createImageData(W, H);
-  for (let i = 0; i < W * H; i++){
+  const img = ctx.createImageData(n, n);
+  for (let i = 0; i < n * n; i++){
     const c = pixels[i];
     const o = i * 4;
     if (!c){ img.data[o + 3] = 0; continue; }
@@ -1519,10 +1634,10 @@ function drawTo(canvas, pixels, scale){
     img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
   }
   const tmp = document.createElement('canvas');
-  tmp.width = W; tmp.height = H;
+  tmp.width = n; tmp.height = n;
   tmp.getContext('2d').putImageData(img, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(tmp, 0, 0, W * scale, H * scale);
+  ctx.drawImage(tmp, 0, 0, n * scale, n * scale);
 }
 
 /* =========================================================
@@ -1536,6 +1651,8 @@ const I18N = {
     roll: '随机一个', rollKbd: '空格',
     save: '下载 PNG', copy: '复制种子', copyDone: '已复制', grid: '网格',
     gridTitle: '显示像素网格',
+    sizeS: 'S · 24', sizeM: 'M · 48', sizeL: 'L · 96',
+    sizeNote: '同一人·三档独立绘制：S 做图标，L 出细节',
     seedLabel: '种子 SEED', apply: '生成',
     seedHint: '同一个种子永远长出同一个人。填数字或任意文字都行。',
     profileLabel: '档案 PROFILE', forgeLabel: '定制 FORGE', recentLabel: '最近 RECENT',
@@ -1611,6 +1728,8 @@ const I18N = {
     roll: 'Roll one', rollKbd: 'space',
     save: 'Download PNG', copy: 'Copy seed', copyDone: 'Copied', grid: 'Grid',
     gridTitle: 'Show pixel grid',
+    sizeS: 'S · 24', sizeM: 'M · 48', sizeL: 'L · 96',
+    sizeNote: 'One person · three independent renders: S for icons, L for detail',
     seedLabel: 'SEED', apply: 'Generate',
     seedHint: 'The same seed always grows the same person. Digits or any text both work.',
     profileLabel: 'PROFILE', forgeLabel: 'FORGE', recentLabel: 'RECENT',
@@ -1748,6 +1867,10 @@ function applyStaticText(){
   copyBtn.textContent = t('copy');
   gridBtn.textContent = t('grid');
   gridBtn.title = t('gridTitle');
+
+  document.querySelector('#pvS').parentElement.querySelector('span').textContent = t('sizeS');
+  document.querySelector('#pvM').parentElement.querySelector('span').textContent = t('sizeM');
+  document.querySelector('#pvL').parentElement.querySelector('span').textContent = t('sizeL');
 
   document.querySelector('#seedBlock .label').textContent = t('seedLabel');
   document.getElementById('apply').textContent = t('apply');
@@ -1929,6 +2052,14 @@ function show(seed, pushRecent, label){
   drawTo(view, px, 8);
   current = { seed, pixels: px, info: res.info };
 
+  // 三档同屏：同一人分别按 24/48/96 独立重绘
+  const resS = generate(seed, { ...lock, size: SIZES.S });
+  const resL = generate(seed, { ...lock, size: SIZES.L });
+  drawTo(document.getElementById('pvS'), composite(resS), 4, SIZES.S);
+  drawTo(document.getElementById('pvM'), px, 4, SIZES.M);
+  drawTo(document.getElementById('pvL'), composite(resL), 2, SIZES.L);
+  current.variants = { S: composite(resS), L: composite(resL) };
+
   renderProfile(res.info);
 
   // 头饰遮住发型时禁用发型下拉并说明原因
@@ -2067,10 +2198,11 @@ document.addEventListener('keydown', e => {
 });
 
 saveBtn.addEventListener('click', () => {
+  // 下载 96 档独立绘制版（细节最全），8× 放大到 768×768
   const out = document.createElement('canvas');
-  drawTo(out, current.pixels, 8);
+  drawTo(out, current.variants.L, 8, SIZES.L);
   const a = document.createElement('a');
-  a.download = `pixel-person-${current.seed}.png`;
+  a.download = `pixel-person-${current.seed}-96px.png`;
   a.href = out.toDataURL('image/png');
   a.click();
 });
