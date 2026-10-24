@@ -522,10 +522,15 @@ function fillHead(g, cx, cy, rx, ry, shape, color, exp, lim){
 function generate(seed, ov){
   ov = ov || {};
   const size = ov.size || 48;                 // 24 / 48 / 96，每档独立绘制
-  const r = mulberry32(seed);
+  const r = mulberry32(seed);                 // 基因流：所有档位共享，保证"同一个人"
   const pick = a => a[(r() * a.length) | 0];
   const chance = p => r() < p;
   const ri = (a, b) => a + Math.floor(r() * (b - a + 1));
+  // 绘制流：每档独立（种子 + 尺寸派生），档位专属分支消耗随机数不会影响基因
+  const rd = mulberry32(seed ^ (size * 0x9E3779B1));
+  const dpick = a => a[(rd() * a.length) | 0];
+  const dchance = p => rd() < p;
+  const dri = (a, b) => a + Math.floor(rd() * (b - a + 1));
 
   // 坐标缩放器：把 48 档设计坐标映射到当前档（已在上方定义 v = n × size/48）
   const g = new Grid(size, size);
@@ -750,8 +755,8 @@ function generate(seed, ov){
         const w = Math.round((rx + 5) * Math.sqrt(1 - t * t));
         for (let x = cx - w; x <= cx + w; x++){
           const edge = Math.abs(x - cx) > w - 2;
-          if (edge && chance(0.25)) continue;
-          g.set(x, y, edge ? d : (chance(0.1) ? d : c));
+          if (edge && dchance(0.25)) continue;
+          g.set(x, y, edge ? d : (dchance(0.1) ? d : c));
         }
       }
     }
@@ -858,7 +863,7 @@ function generate(seed, ov){
   const beltY = neckTop + 9;
   if (kind === 'tunic' || kind === 'rags'){
     // 用一块补丁和两侧收暗表示衣料结构，不画横贯躯干的腰带
-    const ppx = cx + ri(-6, 4), ppy = neckTop + ri(5, 11);
+    const ppx = cx +(-6, 4), ppy = neckTop +(5, 11);
     for (let y = ppy; y <= ppy + 1; y++)
       for (let x = ppx; x <= ppx + 2; x++) g.set(x, y, shade(clothC, -0.22));
     for (let y = beltY; y <= beltY + 2; y++){
@@ -868,7 +873,7 @@ function generate(seed, ov){
     }
     if (kind === 'rags'){
       for (let i = 0; i < 8; i++){
-        const px = cx + ri(-9, 8), py = neckTop + ri(3, 14);
+        const px = cx +(-9, 8), py = neckTop +(3, 14);
         if (g.get(px, py) === clothC) g.set(px, py, shade(clothC, -0.22));
       }
     }
@@ -974,7 +979,7 @@ function generate(seed, ov){
   /* ---- 4. 前发 ---- */
   const fringeY = cy - 6;   // 刘海最低点（不遮眉眼）
   // 发际偏移：发顶中心左/右偏 1px 或居中，发型不再永远正对中线
-  const hairSkew = chance(0.5) ? ri(-1, 1) : 0;
+  const hairSkew = dchance(0.5) ? dri(-1, 1) : 0;
   // 发顶椭圆：横向比头宽 1px、纵向比头高 2px，随脸型走而不是统一"帽子"
   const hairTop = (bottomY, exp = 1) => {
     const hcy = cy - 1, hrx = rx + exp, hry = ry + exp + 1;
@@ -1019,7 +1024,7 @@ function generate(seed, ov){
     case 'short':
       hairTop(fringeY + 1, 1);
       // 短发鬓角：一侧厚一侧薄（随机侧），加上耳前短发帘
-      const sideSide = chance(0.5) ? 1 : -1;
+      const sideSide = dchance(0.5) ? 1 : -1;
       for (let y = cy - 4; y <= cy + 2; y++){
         g.set(cx + sideSide * (rx + 1), y, hairD);
         if (y < cy) g.set(cx - sideSide * (rx + 1), y, hairD);
@@ -1037,7 +1042,7 @@ function generate(seed, ov){
       break;
     case 'sidepart': {
       hairTop(fringeY + 1, 1);
-      const dir = chance(0.5) ? 1 : -1;
+      const dir = dchance(0.5) ? 1 : -1;
       for (let i = 0; i < rx - 1; i++){
         const x = cx + dir * (i - 1);
         const y = fringeY + Math.min(3, Math.floor(i * 0.6));
@@ -1064,7 +1069,7 @@ function generate(seed, ov){
         for (let y = cy - 2; y <= cy + 4; y++)
           g.set(cx + sgn * (rx + 1), y, hairD);
       // 波波头内圈一束亮发
-      for (let y = cy - 3; y <= cy; y++) g.set(cx + (chance(0.5) ? -1 : 1) * Math.round(rx * 0.5), y, hairL);
+      for (let y = cy - 3; y <= cy; y++) g.set(cx + (dchance(0.5) ? -1 : 1) * Math.round(rx * 0.5), y, hairL);
       break;
     case 'ponytail':
       hairTop(fringeY + 1, 1);
@@ -1080,8 +1085,8 @@ function generate(seed, ov){
         const hw = headHW(y, cy, rx, ry, shape);
         if (hw < 0) continue;
         for (let x = cx - hw - 2; x <= cx + hw + 2; x++){
-          if (g.get(x, y) === hairC && chance(0.22)) g.set(x, y, hairD);
-          if (!g.get(x, y) && chance(0.35)) g.set(x, y, hairC);
+          if (g.get(x, y) === hairC && dchance(0.22)) g.set(x, y, hairD);
+          if (!g.get(x, y) && dchance(0.35)) g.set(x, y, hairC);
         }
       }
       break;
@@ -1090,7 +1095,7 @@ function generate(seed, ov){
       hairTop(fringeY + 1, 1); break;
     case 'bun': {
       hairTop(fringeY + 1, 1);
-      const bx = cx + (chance(0.4) ? ri(-2, 2) : 0);
+      const bx = cx + (dchance(0.4) ? dri(-2, 2) : 0);
       for (let y = faceTop - 5; y <= faceTop - 1; y++)
         for (let x = bx - 2; x <= bx + 3; x++)
           g.set(x, y, (y === faceTop - 5 || x === bx + 3) ? hairD : hairC);
@@ -1149,9 +1154,9 @@ function generate(seed, ov){
   const exR = eyeCxC + eyeGap + Math.max(0, 2 - ew);
   const exL = 2 * eyeCxC - exR - ew + 1;
   const dx = Math.round((exR + (ew - 1) / 2) - eyeCxC);
-  const blink = chance(0.05);
+  const blink = dchance(0.05);
   // 眼尾倾斜度：0=平，1=外角上挑，-1=外角下垂；两眼镜像对称
-  const eyeTilt = pick([-1, 0, 0, 0, 1]);
+  const eyeTilt =([-1, 0, 0, 0, 1]);
   stampEye(exL, eyeY, blink ? [['p', 'p']] : eyePat, false);
   stampEye(exR, eyeY, blink ? [['p', 'p']] : eyePat, false);
   if (!blink && eyeTilt !== 0){
@@ -1187,7 +1192,7 @@ function generate(seed, ov){
   // 鼻子：有漂移时鼻头随之偏移，显出"这人鼻子有点歪"的个体感
   const noseC = cx + feaJit;
   const noseY = cy + 3;
-  const noseStyle = ri(0, 3);
+  const noseStyle =(0, 3);
   if (noseStyle === 0){
     g.set(noseC, noseY, skinD);
   } else if (noseStyle === 1){
@@ -1205,7 +1210,7 @@ function generate(seed, ov){
   const mouthC = cx + feaJit;
   const mouthY = cy + 6;
   // 嘴宽：24 档固定 2px，48 档 2-4，96 档 5-7
-  const mw = size <= 24 ? 2 : (size >= 96 ? ri(5, 7) : ri(2, 4));
+  const mw = size <= 24 ? 2 : (size >= 96 ?(5, 7) :(2, 4));
   // 口红只属于涂得起它的女性：按身份分档
   // 艳丽=贵族/商人妻；暗色=女巫/炼金术士/吟游诗人；素颜=贫苦与神职
   const LIP_RICH = ['noble', 'merchant'];
@@ -1255,7 +1260,7 @@ function generate(seed, ov){
       break;
   }
 
-  // 胡须
+  // 胡须：属于基因（外观身份），用基因流挑选；绘制细节才用绘制流
   const beardBase = (gender === 'M' && age > 0.3 && chance(0.55))
     ? pick(['stubble', 'mustache', 'goatee', 'full', 'longbeard']) : 'none';
   const beard = ov.beard != null ? ov.beard : beardBase;
@@ -1274,7 +1279,7 @@ function generate(seed, ov){
         for (let x = cx - hw + 1; x <= cx + hw - 1; x++){
           const d = Math.abs(x - cx);
           if (y < mouthY - 1 && d >= mclear - 1 && d <= mclear + 1) continue;   // 嘴角区域不留茬
-          if (chance(size >= 96 ? 0.34 : 0.28)) g.set(x, y, bc);
+          if (dchance(size >= 96 ? 0.34 : 0.28)) g.set(x, y, bc);
         }
       }
     } else if (beard === 'mustache'){
@@ -1312,9 +1317,9 @@ function generate(seed, ov){
 
   // 皱纹（24 档省略，图标干净）
   if (detail && age > 0.62){
-    if (chance(0.7)) hline(faceTop + 3, cx - 3, cx + 3, shade(skin, -0.12));
-    if (chance(0.5)) hline(faceTop + 5, cx - 2, cx + 2, shade(skin, -0.1));
-    if (chance(0.6)){
+    if (dchance(0.7)) hline(faceTop + 3, cx - 3, cx + 3, shade(skin, -0.12));
+    if (dchance(0.5)) hline(faceTop + 5, cx - 2, cx + 2, shade(skin, -0.1));
+    if (dchance(0.6)){
       for (let y = mouthY - 1; y <= mouthY + 2; y++){
         g.set(cx - 4, y, shade(skin, -0.14)); g.set(cx + 4, y, shade(skin, -0.14));
       }
@@ -1468,7 +1473,7 @@ function generate(seed, ov){
     // 花环：一圈交替的叶片与小花，压低在发际上
     const hwC = Math.max(4, headHW(cy - 6, cy, rx, ry, shape));
     const leaf = '#5f7a44', leafD = '#41562f';
-    const bloom = pick(['#d9c46a', '#c98a9a', '#d8d2be']);
+    const bloom =(['#d9c46a', '#c98a9a', '#d8d2be']);
     for (let x = cx - hwC; x <= cx + hwC; x++){
       const k = Math.abs(x - cx) / Math.max(1, hwC);
       const yy = cy - 6 - Math.round((1 - k * k) * 3.4);
@@ -1531,12 +1536,12 @@ function generate(seed, ov){
   }
 
   // 身份配饰：腰袋（长袍的十字已由袍子本身画过，不再重复）
-  if (chance(0.5) && arch.kind !== 'robe'){
+  if (dchance(0.5) && arch.kind !== 'robe'){
     const px = cx + 5, py = beltY + 3;
     for (let y = py; y <= py + 2; y++)
       for (let x = px - 1; x <= px + 2; x++) g.set(x, y, y === py ? '#7a5a3a' : '#5a3f28');
   }
-  if (chance(0.3) && gear !== 'helmet' && gear !== 'wimple'){
+  if (dchance(0.3) && gear !== 'helmet' && gear !== 'wimple'){
     g.set(cx - 3, cy - 4, mixHex(skin, '#c06a5a', 0.6));
   }
 
@@ -1544,7 +1549,7 @@ function generate(seed, ov){
   // （detail 常量已在基因段定义：48/96 档保留细节，24 档做减法）
 
   // 女性露发时的发带
-  if (gender === 'F' && gear === 'none' && chance(0.55)){
+  if (gender === 'F' && gear === 'none' && dchance(0.55)){
     const hwB = Math.max(2, headHW(cy - 6, cy, rx, ry, shape));
     for (let x = cx - hwB; x <= cx + hwB; x++){
       const c0 = g.get(x, cy - 6);
@@ -1554,8 +1559,8 @@ function generate(seed, ov){
 
   /* ---- 6.5 96 档专属：身份手持物（画在身体上、脸后，不进 48/24 档） ---- */
   // cx/cy/shirtHW 已是当前档坐标，直接用；不经过 v() 二次缩放
-  if (size >= 96 && chance(0.65)){
-    const prop = pick(arch.props || ['none']);
+  if (size >= 96 && dchance(0.65)){
+    const prop =(arch.props || ['none']);
     if (prop !== 'none'){
       const handY = neckTop + 16;
       const px = Math.min(size - 5, cx + Math.round(shirtHW(neckTop + 8) * 0.9));
