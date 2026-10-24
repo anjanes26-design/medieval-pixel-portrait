@@ -551,17 +551,17 @@ function generate(seed, ov){
   const feaJit = chance(0.6) ? ri(-1, 1) : 0;   // 五官横向偏移
   // 比例联动：宽脸配短脸，窄脸配长脸，避免"窄而长"的布丁脸
   // 男 8-10 宽、女 6-8 宽；脸长按脸宽反调 ±1
-  // 96 档脸再宽 1px：大图有空间放更多面部细节
   const rxBase = gender === 'F' ? ri(6, 8) : ri(8, 10);
-  const rx48 = rxBase + (size >= 96 ? 1 : 0);
+  const rx48 = rxBase;
   const ry48 = Math.max(9, Math.min(12,
     (gender === 'F' ? 10 : 11) + Math.round((8.5 - rxBase) * 0.5)
   )) + (shape === 'long' ? 1 : 0);
   // 中心与半径落到当前档：24 档 = 48 档值 ×0.5，48 档原值，96 档 ×2
   // 此后所有绘制代码里的 cx/cy/rx/ry 都是当前档坐标
+  // 96 档脸再宽 2px（不是 1）：五官随脸放大后，脸窄会显马脸
   const cx = Math.round(cx48 * (size / 48));
   const cy = Math.round(cy48 * (size / 48));
-  const rx = Math.max(2, Math.round(rx48 * (size / 48)));
+  const rx = Math.max(2, Math.round((rx48 + (size >= 96 ? 1 : 0)) * (size / 48)));
   const ry = Math.max(4, Math.round(ry48 * (size / 48)));
   const v = n => Math.round(n * (size / 48));
 
@@ -804,18 +804,22 @@ function generate(seed, ov){
     }
   }
 
-  // 96 档专属：衣服织锦纹样（菱形点缀），只有大画布放得下
+  // 96 档专属：领口一圈织锦襟（yoke），代替全身撒点
   if (size >= 96){
-    const patC = shade(trimC, -0.1);
-    const step = 8;
-    for (let y = neckTop + 6; y < size - 4; y += step){
-      const hw = shirtHW(y);
-      for (let x = cx - hw + 3; x <= cx + hw - 3; x += step){
-        const ox = x + ((y / step) % 2 ? step / 2 : 0);
-        // 3px 菱形
-        g.set(ox, y - 1, patC);
-        g.set(ox - 1, y, patC); g.set(ox, y, shade(patC, 0.15)); g.set(ox + 1, y, patC);
-        g.set(ox, y + 1, patC);
+    const patC = shade(trimC, -0.05);
+    const yoke0 = neckTop + 3, yoke1 = neckTop + 10;
+    const hwY = shirtHW(yoke0);
+    for (let y = yoke0; y <= yoke1; y++){
+      const t = (y - yoke0) / (yoke1 - yoke0);
+      const w = Math.round(hwY * (1 - t * 0.25));
+      // 沿领口弧线放菱形，间隔 6px，两肩对称
+      if ((y - yoke0) % 3 === 0){
+        for (const sgn of [-1, 1]){
+          const ox = cx + sgn * Math.round(w * 0.72);
+          g.set(ox, y, patC);
+          g.set(ox, y + 1, shade(patC, -0.2));
+          g.set(ox + sgn * 2, y + 1, patC);
+        }
       }
     }
   }
@@ -1121,7 +1125,13 @@ function generate(seed, ov){
 
   /* ---- 5. 五官 ---- */
   const eyeY = cy - 1;
-  const eyePat = EYE_PATTERNS[eyeStyle];
+  // 96 档五官随脸放大：眼宽 3-4、嘴宽 5-7、眉距同宽；24 档保持最小
+  const fx = size >= 96 ? 1.5 : (size <= 24 ? 0.8 : 1);   // 五官缩放系数
+  const eyePat = size >= 96
+    ? { dot:[['p']], normal:[['p','p','p']], big:[['p','p','p','p'],['p','w','w','p']],
+        tall:[['p','p'],['p','p'],['p','p']], narrow:[['p','p']],
+        sharp:[['p','p','p'],[' ',' ','p']] }[eyeStyle]
+    : EYE_PATTERNS[eyeStyle];
   const ew = eyePat[0].length, eh = eyePat.length;
   const eyeCols = { w: '#efe7d8', p: eyeC, d: shade(eyeC, -0.55) };
   const stampEye = (x0, y0, pat, mirror) => {
@@ -1194,7 +1204,8 @@ function generate(seed, ov){
   // 嘴
   const mouthC = cx + feaJit;
   const mouthY = cy + 6;
-  const mw = ri(2, 4);
+  // 嘴宽：24 档固定 2px，48 档 2-4，96 档 5-7
+  const mw = size <= 24 ? 2 : (size >= 96 ? ri(5, 7) : ri(2, 4));
   // 口红只属于涂得起它的女性：按身份分档
   // 艳丽=贵族/商人妻；暗色=女巫/炼金术士/吟游诗人；素颜=贫苦与神职
   const LIP_RICH = ['noble', 'merchant'];
@@ -1252,33 +1263,37 @@ function generate(seed, ov){
     let bc = mixHex(hairC, skinD, 0.2);
     // 胡须必须比肤色深：浅发色在深肤上会读成一片白点
     if (luma(bc) > luma(skin) - 0.08) bc = shade(mixHex(hairC, skinD, 0.4), -0.25);
+    // 嘴角保护区（左右各留 2px 空隙）；24 档嘴小，保护区也小
+    const mclear = size >= 96 ? 3 : 2;
     if (beard === 'stubble'){
-      // 胡茬：避开嘴角两侧（x = ±3、±4 处只少量点），不会读成猫须
-      for (let y = cy + 4; y <= cy + ry - 1; y++){
+      // 96 档胡茬：只画下巴与腮线，点密度更高但成片，避免噪点
+      const y0 = size >= 96 ? cy + 5 : cy + 4;
+      for (let y = y0; y <= cy + ry - 1; y++){
         const hw = headHW(y, cy, rx, ry, shape);
         if (hw < 0) continue;
         for (let x = cx - hw + 1; x <= cx + hw - 1; x++){
           const d = Math.abs(x - cx);
-          if (y < mouthY - 1 && d >= 2 && d <= 4) continue;   // 嘴角区域不留茬
-          if (chance(0.28)) g.set(x, y, bc);
+          if (y < mouthY - 1 && d >= mclear - 1 && d <= mclear + 1) continue;   // 嘴角区域不留茬
+          if (chance(size >= 96 ? 0.34 : 0.28)) g.set(x, y, bc);
         }
       }
     } else if (beard === 'mustache'){
-      hline(mouthY - 2, cx - 2, cx + 2, bc);
-      g.set(cx - 3, mouthY - 1, bc); g.set(cx + 3, mouthY - 1, bc);
+      const mw2 = size >= 96 ? 4 : 2;
+      hline(mouthY - 2, mouthC - mw2, mouthC + mw2, bc);
+      g.set(mouthC - mw2 - 1, mouthY - 1, bc); g.set(mouthC + mw2 + 1, mouthY - 1, bc);
     } else if (beard === 'goatee'){
-      hline(mouthY - 2, cx - 2, cx + 2, bc);
-      for (let y = mouthY + 2; y <= cy + ry - 1; y++) hline(y, cx - 1, cx + 1, bc);
+      hline(mouthY - 2, mouthC - 2, mouthC + 2, bc);
+      for (let y = mouthY + 2; y <= cy + ry - 1; y++) hline(y, mouthC - 1, mouthC + 1, bc);
     } else if (beard === 'full'){
       for (let y = mouthY - 1; y <= cy + ry; y++){
         const hw = headHW(y, cy, rx, ry, shape);
         if (hw < 0) continue;
         for (let x = cx - hw + 1; x <= cx + hw - 1; x++){
-          if (y <= mouthY + 1 && Math.abs(x - cx) < 3) continue;   // 嘴露出来
+          if (y <= mouthY + 1 && Math.abs(x - mouthC) < mclear) continue;   // 嘴露出来
           g.set(x, y, bc);
         }
       }
-      hline(mouthY - 2, cx - 2, cx + 2, bc);
+      hline(mouthY - 2, mouthC - 2, mouthC + 2, bc);
     } else if (beard === 'longbeard'){
       const bcL = mixHex(hairC, skinD, 0.38);
       for (let y = mouthY; y <= cy + ry + 6; y++){
@@ -1287,11 +1302,11 @@ function generate(seed, ov){
         const w = Math.max(0, Math.round(base * 0.55) - over);
         if (w < 1) continue;
         for (let x = cx - w; x <= cx + w; x++){
-          if (y <= mouthY + 1 && Math.abs(x - cx) < 3) continue;
+          if (y <= mouthY + 1 && Math.abs(x - mouthC) < mclear) continue;
           g.set(x, y, bcL);
         }
       }
-      hline(mouthY - 2, cx - 2, cx + 2, bc);
+      hline(mouthY - 2, mouthC - 2, mouthC + 2, bc);
     }
   }
 
@@ -1320,12 +1335,14 @@ function generate(seed, ov){
 
   if (gear === 'hood' || gear === 'cowl'){
     // 兜帽要比头骨连同头发都高出一截，否则发顶会从帽口漏出来
+    // 24 档帽口开大：露脸区域从 faceTop+1 放宽到 faceTop+3，脸不会被挤成一条缝
+    const holeFrom = size <= 24 ? faceTop + 3 : faceTop + 1;
     const hcy = cy - 1, hrx = rx + 3, hry = ry + 4;
     for (let y = hcy - hry; y <= cy + 6; y++){
       const hw = ellipseHW(y, hcy, hrx, hry);
       if (hw < 0) continue;
       for (let x = cx - hw; x <= cx + hw; x++){
-        if (holeFace(x, y, faceTop + 1)) continue;
+        if (holeFace(x, y, holeFrom)) continue;
         g.set(x, y, Math.abs(x - cx) >= hw - 1 ? gearD : gearC);
       }
     }
@@ -1390,8 +1407,11 @@ function generate(seed, ov){
   }
 
   if (gear === 'helmet'){
-    const hcy = cy - 3, hrx = rx + 2, hry = ry - 1;
-    for (let y = hcy - hry; y <= cy - 4; y++){
+    // 96 档头盔更高更宽，比例随脸放大
+    const scaleH = size >= 96 ? 1.5 : 1;
+    const hcy = cy - Math.round(3 * scaleH), hrx = rx + Math.round(2 * scaleH), hry = ry - 1;
+    const brim = cy - Math.round(4 * scaleH);
+    for (let y = hcy - hry; y <= brim; y++){
       const hw = ellipseHW(y, hcy, hrx, hry);
       if (hw < 0) continue;
       for (let x = cx - hw; x <= cx + hw; x++){
@@ -1402,14 +1422,22 @@ function generate(seed, ov){
         g.set(x, y, c);
       }
     }
-    // 鼻梁护条
-    for (let y = cy - 4; y <= cy + 1; y++){ g.set(cx, y, metalL); g.set(cx + 1, y, metalD); }
+    // 鼻梁护条：96 档改窄的 1px 条 + 侧影，不再像创可贴
+    const noseBarW = size >= 96 ? 1 : 2;
+    for (let y = brim; y <= cy + 1; y++){
+      g.set(cx, y, metalL);
+      if (noseBarW > 1) g.set(cx + 1, y, metalD);
+    }
+    // 眼缝：头盔下沿在眼睛位置开一条横缝，露出眼睛而不是罩住
+    for (let x = cx - Math.round(rx * 0.7); x <= cx + Math.round(rx * 0.7); x++)
+      g.set(x, cy - 1, size >= 96 ? skin : g.get(x, cy - 1));
     // 护耳
     for (const sgn of [-1, 1])
-      for (let y = cy - 4; y <= cy + 1; y++) g.set(cx + sgn * (rx + 1), y, metalD);
+      for (let y = brim; y <= cy + 1; y++) g.set(cx + sgn * (rx + 1), y, metalD);
     // 铆钉与顶脊
-    g.set(cx - 3, cy - 7, metalL); g.set(cx + 3, cy - 7, metalL);
-    for (let y = cy - 12; y <= cy - 9; y++) if (g.get(cx, y)) g.set(cx, y, metalD);
+    const riv = Math.max(2, Math.round(3 * scaleH));
+    g.set(cx - riv, brim - 2, metalL); g.set(cx + riv, brim - 2, metalL);
+    for (let y = hcy - hry + 1; y <= hcy - hry + Math.round(4 * scaleH); y++) if (g.get(cx, y)) g.set(cx, y, metalD);
   }
 
   if (gear === 'crown'){
