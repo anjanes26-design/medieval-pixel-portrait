@@ -440,21 +440,34 @@ const HAIR_M = ['buzz', 'short', 'short', 'sidepart', 'fringe', 'curly',
                 'receding', 'bald', 'long', 'ponytail', 'afro', 'bun'];
 const HAIR_F = ['long', 'long', 'wavy', 'wavy', 'twin', 'twin', 'bob', 'ponytail',
                 'bun', 'fringe', 'curly', 'afro', 'short'];
-/* ---------- 头部轮廓 ---------- */
+/* ---------- 头部轮廓：6 种脸型真正改变下颌/颧骨结构 ---------- */
 function headHW(y, cy, rx, ry, shape){
   const t = (y - cy) / ry;
   if (t < -1 || t > 1) return -1;
   let hw = rx * Math.sqrt(Math.max(0, 1 - t * t));
   if (shape === 'square'){
-    if (t > 0.15) hw = Math.max(hw, rx * (0.95 - 0.18 * (t - 0.15)));
+    // 方脸：下颌平直，腮帮外扩，到下缘突然收
+    if (t > 0.15) hw = Math.max(hw, rx * (0.96 - 0.12 * (t - 0.15)));
+    if (t > 0.75) hw = Math.round(rx * 0.78);
   } else if (shape === 'pointed'){
-    if (t > 0) hw *= 1 - 0.62 * t * t;
+    // 尖下巴：从颧骨下快速收成 V
+    if (t > 0) hw *= 1 - 0.72 * t * t;
+    if (t > 0.8) hw = Math.max(1, Math.round(hw * 0.8));
   } else if (shape === 'heart'){
-    if (t > 0.05) hw *= 1 - 0.95 * (t - 0.05) * (t - 0.05);
+    // 心形：宽额头 + 尖下巴，中间颧骨最宽
+    if (t > 0) hw *= 1 - 0.88 * (t - 0.05) * (t - 0.05);
+    if (t > 0.8) hw = Math.max(1, Math.round(hw * 0.85));
   } else if (shape === 'long'){
     hw *= 0.88;
+    // 长脸：脸颊瘦削，下颌窄但不尖
+    if (t > 0.5) hw *= 1 - 0.25 * (t - 0.5);
   } else if (shape === 'wide'){
     hw *= 1.07;
+    // 宽脸：下颌圆厚，不到尖
+    if (t > 0.6) hw = Math.max(hw, rx * 0.55);
+  } else if (shape === 'round'){
+    // 圆脸：下颌短圆，整体微短（比其他脸型显短）
+    if (t > 0.6) hw = Math.max(hw, rx * 0.5);
   }
   return Math.round(hw);
 }
@@ -499,8 +512,10 @@ function generate(seed, ov){
     ? pick(['round', 'round', 'pointed', 'pointed', 'heart', 'long'])
     : pick(['square', 'square', 'round', 'wide', 'long', 'pointed', 'heart']);
   const shape = ov.shape || shapeBase;
+  // 五官不对称漂移：整张脸特征（眼/眉/鼻/嘴）共享一个微偏移，人物不再轴对称
   const cx = 24 + (chance(0.35) ? ri(-1, 1) : 0);
   const cy = 17 + ri(-1, 1);
+  const feaJit = chance(0.6) ? ri(-1, 1) : 0;   // 五官横向偏移
   // 比例联动：宽脸配短脸，窄脸配长脸，避免"窄而长"的布丁脸
   // 男 8-10 宽、女 6-8 宽；脸长按脸宽反调 ±1
   const rx = gender === 'F' ? ri(6, 8) : ri(8, 10);
@@ -891,14 +906,16 @@ function generate(seed, ov){
 
   /* ---- 4. 前发 ---- */
   const fringeY = cy - 6;   // 刘海最低点（不遮眉眼）
+  // 发际偏移：发顶中心左/右偏 1px 或居中，发型不再永远正对中线
+  const hairSkew = chance(0.5) ? ri(-1, 1) : 0;
   // 发顶椭圆：横向比头宽 1px、纵向比头高 2px，随脸型走而不是统一"帽子"
   const hairTop = (bottomY, exp = 1) => {
     const hcy = cy - 1, hrx = rx + exp, hry = ry + exp + 1;
     for (let y = hcy - hry; y <= bottomY; y++){
       const hw = ellipseHW(y, hcy, hrx, hry);
       if (hw < 0) continue;
-      for (let x = cx - hw; x <= cx + hw; x++){
-        const edge = Math.abs(x - cx) >= hw;
+      for (let x = cx - hw + hairSkew; x <= cx + hw + hairSkew; x++){
+        const edge = Math.abs(x - cx - hairSkew) >= hw;
         g.set(x, y, edge ? hairD : hairC);
       }
     }
@@ -908,7 +925,7 @@ function generate(seed, ov){
       let lit = 0;
       for (let y = hcy - hry + 2; y <= hcy - 2 && lit < 3; y++){
         const hw = ellipseHW(y, hcy, hrx, hry);
-        const x = cx + sgn * Math.min(hx, hw - 1);
+        const x = cx + hairSkew + sgn * Math.min(hx, hw - 1);
         if (x >= cx - hw && x <= cx + hw && g.get(x, y) === hairC){
           g.set(x, y, hairL); lit++;
         }
@@ -916,9 +933,9 @@ function generate(seed, ov){
     }
   };
 
-  // 顶部高光，避免深色头发与描边粘成一片
+  // 顶部高光，避免深色头发与描边粘成一片（跟随发际偏移）
   const hairHi = () => {
-    for (let x = cx - Math.round(rx * 0.7); x <= cx + Math.round(rx * 0.7); x++){
+    for (let x = cx + hairSkew - Math.round(rx * 0.7); x <= cx + hairSkew + Math.round(rx * 0.7); x++){
       for (let y = faceTop - 5; y < cy - 2; y++){
         const c = g.get(x, y);
         if (c === hairC || c === hairD){
@@ -934,9 +951,13 @@ function generate(seed, ov){
       hairTop(fringeY + 1, 1); break;
     case 'short':
       hairTop(fringeY + 1, 1);
-      for (const sgn of [-1, 1])
-        for (let y = cy - 4; y <= cy + 2; y++)
-          g.set(cx + sgn * (rx + 1), y, hairD);
+      // 短发鬓角：一侧厚一侧薄（随机侧），加上耳前短发帘
+      const sideSide = chance(0.5) ? 1 : -1;
+      for (let y = cy - 4; y <= cy + 2; y++){
+        g.set(cx + sideSide * (rx + 1), y, hairD);
+        if (y < cy) g.set(cx - sideSide * (rx + 1), y, hairD);
+      }
+      g.set(cx + sideSide * (rx + 1), cy + 3, hairD);   // 厚侧鬓角更长
       break;
     case 'fringe':
       hairTop(fringeY + 2, 1);
@@ -962,12 +983,12 @@ function generate(seed, ov){
     case 'long':
     case 'wavy':
       hairTop(fringeY + 2, 1);
-      // 中分弧线：从发顶向两侧压出两道暗缝，长发自带中分
+      // 中分弧线：从发顶向两侧压出两道暗缝，长发自带中分（偏发际的一侧偏移）
       for (let y = cy - ry - 2; y <= fringeY + 1; y++){
         const hw = ellipseHW(y, cy - 1, rx + 1, ry + 2);
         if (hw < 2) continue;
-        const x = cx + (y < cy - 4 ? 0 : Math.round((y - cy + 4) * 0.5));
-        if (Math.abs(x - cx) < hw) g.set(x, y, hairD);
+        const x = cx + hairSkew + (y < cy - 4 ? 0 : Math.round((y - cy + 4) * 0.5));
+        if (Math.abs(x - cx - hairSkew) < hw) g.set(x, y, hairD);
       }
       break;
     case 'bob':
@@ -1049,14 +1070,23 @@ function generate(seed, ov){
       }
     }
   };
-  // 眼距随脸宽缩放：宽脸眼距大、窄眼距小，都关于 cx 对称
+  // 眼距随脸宽缩放：宽脸眼距大、窄眼距小，都关于 cx 对称；整组五官带共享漂移
+  const eyeCxC = cx + feaJit;
   const eyeGap = rx <= 6 ? 1 : (rx <= 8 ? 2 : 3);
-  const exR = cx + eyeGap + Math.max(0, 2 - ew);
-  const exL = 2 * cx - exR - ew + 1;
-  const dx = Math.round((exR + (ew - 1) / 2) - cx);
+  const exR = eyeCxC + eyeGap + Math.max(0, 2 - ew);
+  const exL = 2 * eyeCxC - exR - ew + 1;
+  const dx = Math.round((exR + (ew - 1) / 2) - eyeCxC);
   const blink = chance(0.05);
+  // 眼尾倾斜度：0=平，1=外角上挑，-1=外角下垂；两眼镜像对称
+  const eyeTilt = pick([-1, 0, 0, 0, 1]);
   stampEye(exL, eyeY, blink ? [['p', 'p']] : eyePat, false);
   stampEye(exR, eyeY, blink ? [['p', 'p']] : eyePat, false);
+  if (!blink && eyeTilt !== 0){
+    // 外侧眼角加一个像素：上挑画在上一行外侧，下垂画在下一行外侧
+    const yR = eyeY - (eyeTilt > 0 ? 1 : -1);
+    g.set(exR + ew, yR, eyeC);            // 右眼外角
+    g.set(exL - 1, yR, eyeC);             // 左眼外角
+  }
   // 每只眼一条上眼睑暗线，把眼睛"装"进脸里
   if (eh <= 1){
     for (let x = 0; x < ew; x++){
@@ -1072,31 +1102,34 @@ function generate(seed, ov){
     : (skinDark ? shade(hairC, -0.18) : mixHex(hairC, skinD, 0.35));
   const browY = eyeY - 3;
   const bw = browShape.length;
+  const browCxC = cx + feaJit;
   for (let i = 0; i < bw; i++){
     const ly = browY - browShape[i];
-    const lx = cx - dx - 2 + i;
+    const lx = browCxC - dx - 2 + i;
     g.set(lx, ly, browC);
-    g.set(2 * cx - lx, ly, browC);
-    if (browStyle === 'thick'){ g.set(lx, ly + 1, browC); g.set(2 * cx - lx, ly + 1, browC); }
+    g.set(2 * browCxC - lx, ly, browC);
+    if (browStyle === 'thick'){ g.set(lx, ly + 1, browC); g.set(2 * browCxC - lx, ly + 1, browC); }
   }
 
-  // 鼻子
+  // 鼻子：有漂移时鼻头随之偏移，显出"这人鼻子有点歪"的个体感
+  const noseC = cx + feaJit;
   const noseY = cy + 3;
   const noseStyle = ri(0, 3);
   if (noseStyle === 0){
-    g.set(cx, noseY, skinD);
+    g.set(noseC, noseY, skinD);
   } else if (noseStyle === 1){
-    g.set(cx, noseY, skinD);
-    g.set(cx - 1, noseY + 1, skinDD); g.set(cx + 1, noseY + 1, skinDD);
+    g.set(noseC, noseY, skinD);
+    g.set(noseC - 1, noseY + 1, skinDD); g.set(noseC + 1, noseY + 1, skinDD);
   } else if (noseStyle === 2){
-    g.set(cx + 1, noseY - 1, skinD);
-    g.set(cx, noseY, skinD); g.set(cx + 1, noseY, skinD);
+    g.set(noseC + 1, noseY - 1, skinD);
+    g.set(noseC, noseY, skinD); g.set(noseC + 1, noseY, skinD);
   } else {
-    g.set(cx, noseY, skinD);
-    g.set(cx - 1, noseY + 1, skinDD); g.set(cx, noseY + 1, skinD); g.set(cx + 1, noseY + 1, skinDD);
+    g.set(noseC, noseY, skinD);
+    g.set(noseC - 1, noseY + 1, skinDD); g.set(noseC, noseY + 1, skinD); g.set(noseC + 1, noseY + 1, skinDD);
   }
 
   // 嘴
+  const mouthC = cx + feaJit;
   const mouthY = cy + 6;
   const mw = ri(2, 4);
   // 口红只属于涂得起它的女性：按身份分档
@@ -1111,7 +1144,7 @@ function generate(seed, ov){
     : lipTier === 'dark'
     ? mixHex('#5a2a3a', skinD, 0.25)
     : (skinDark ? mixHex(skinD, '#c8696a', 0.62) : mixHex(skinD, '#a3484a', 0.5));
-  const mouthX = cx - Math.floor(mw / 2);
+  const mouthX = mouthC - Math.floor(mw / 2);
   const hline = (y, x0, x1, c) => { for (let x = x0; x <= x1; x++) g.set(x, y, c); };
   switch (mouthStyle){
     case 'neutral':
@@ -1153,7 +1186,9 @@ function generate(seed, ov){
     ? pick(['stubble', 'mustache', 'goatee', 'full', 'longbeard']) : 'none';
   const beard = ov.beard != null ? ov.beard : beardBase;
   if (beard !== 'none'){
-    const bc = mixHex(hairC, skinD, 0.2);
+    let bc = mixHex(hairC, skinD, 0.2);
+    // 胡须必须比肤色深：浅发色在深肤上会读成一片白点
+    if (luma(bc) > luma(skin) - 0.08) bc = shade(mixHex(hairC, skinD, 0.4), -0.25);
     if (beard === 'stubble'){
       // 胡茬：避开嘴角两侧（x = ±3、±4 处只少量点），不会读成猫须
       for (let y = cy + 4; y <= cy + ry - 1; y++){
