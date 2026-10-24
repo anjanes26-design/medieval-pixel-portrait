@@ -561,13 +561,21 @@ function generate(seed, ov){
   const ry48 = Math.max(9, Math.min(12,
     (gender === 'F' ? 10 : 11) + Math.round((8.5 - rxBase) * 0.5)
   )) + (shape === 'long' ? 1 : 0);
-  // 中心与半径落到当前档：24 档 = 48 档值 ×0.5，48 档原值，96 档 ×2
-  // 此后所有绘制代码里的 cx/cy/rx/ry 都是当前档坐标
-  // 96 档脸再宽 2px（不是 1）：五官随脸放大后，脸窄会显马脸
-  const cx = Math.round(cx48 * (size / 48));
-  const cy = Math.round(cy48 * (size / 48));
-  const rx = Math.max(2, Math.round((rx48 + (size >= 96 ? 1 : 0)) * (size / 48)));
-  const ry = Math.max(4, Math.round(ry48 * (size / 48)));
+  // 中心与半径落到当前档。
+  // 24 档纯头像构图：脸放大 1.35 倍、居中，只画头+一点肩；眼睛嘴按比例归位
+  // 96 档脸再宽 2px：五官随脸放大后，脸窄会显马脸
+  let cx = Math.round(cx48 * (size / 48));
+  let cy = Math.round(cy48 * (size / 48));
+  let rx = Math.max(2, Math.round((rx48 + (size >= 96 ? 1 : 0)) * (size / 48)));
+  let ry = Math.max(4, Math.round(ry48 * (size / 48)));
+  if (size <= 24){
+    // 头像模式：以脸中心为画布中心，脸宽约占画布 55%
+    const faceScale = 1.35;
+    rx = Math.max(4, Math.round(rx48 * faceScale * 0.5));
+    ry = Math.max(7, Math.round(ry48 * faceScale * 0.5));
+    cx = 12;
+    cy = Math.round(24 * 0.42);   // 脸中心在 42% 高度，下巴下留肩
+  }
   const v = n => Math.round(n * (size / 48));
 
   let skin = pick(SKINS);
@@ -793,8 +801,8 @@ function generate(seed, ov){
     const t = Math.min(1, Math.max(0, (y - neckTop) / (size - neckTop)));
     let w = (4 + 18 * Math.pow(t, 0.4)) * buildW;
     if (gender === 'F') w *= 0.82 + 0.34 * t * t;   // 明显收腰 + 裙摆外扩
-    // 男性最宽处（画面底部）不超出画布，肩部从领口自然张开而不是方肩直上
-    return Math.min(Math.round(w), 22);
+    // 男性最宽处（画面底部）不超出画布；上限随档位缩放（22 是 48 档值）
+    return Math.min(Math.round(w), Math.round(22 * (size / 48)));
   };
 
   // 躯干
@@ -1055,12 +1063,12 @@ function generate(seed, ov){
     case 'long':
     case 'wavy':
       hairTop(fringeY + 2, 1);
-      // 中分弧线：从发顶向两侧压出两道暗缝，长发自带中分（偏发际的一侧偏移）
-      for (let y = cy - ry - 2; y <= fringeY + 1; y++){
+      // 中分弧线：只在发顶到眉上的区域压一道浅缝，不划到眉眼
+      for (let y = cy - ry - 2; y <= Math.min(fringeY + 1, cy - 5); y++){
         const hw = ellipseHW(y, cy - 1, rx + 1, ry + 2);
         if (hw < 2) continue;
         const x = cx + hairSkew + (y < cy - 4 ? 0 : Math.round((y - cy + 4) * 0.5));
-        if (Math.abs(x - cx - hairSkew) < hw) g.set(x, y, hairD);
+        if (Math.abs(x - cx - hairSkew) < hw && g.get(x, y) === hairC) g.set(x, y, hairD);
       }
       break;
     case 'bob':
@@ -1130,13 +1138,18 @@ function generate(seed, ov){
 
   /* ---- 5. 五官 ---- */
   const eyeY = cy - 1;
-  // 96 档五官随脸放大：眼宽 3-4、嘴宽 5-7、眉距同宽；24 档保持最小
-  const fx = size >= 96 ? 1.5 : (size <= 24 ? 0.8 : 1);   // 五官缩放系数
-  const eyePat = size >= 96
-    ? { dot:[['p']], normal:[['p','p','p']], big:[['p','p','p','p'],['p','w','w','p']],
-        tall:[['p','p'],['p','p'],['p','p']], narrow:[['p','p']],
-        sharp:[['p','p','p'],[' ',' ','p']] }[eyeStyle]
-    : EYE_PATTERNS[eyeStyle];
+  // 24 档纯头像：脸 7-9px 宽，2px 眼/2px 嘴比例合适；96 档：3-4px 眼
+  const eyePat = size <= 24
+    ? { dot:[['p','p']], normal:[['p','p']], big:[['p','p'],['p','p']],
+        tall:[['p','p'],['p','p']], narrow:[['p','p']], sharp:[['p','p']] }[eyeStyle]
+    : (size >= 96
+      ? { dot:[['p','p']],
+          normal:[['p','p','p']],
+          big:[['p','p','p','p'],['p','w','w','p']],
+          tall:[['p','p'],['p','p'],['p','p']],
+          narrow:[['p','p']],
+          sharp:[['p','p','p'],[' ',' ','p']] }[eyeStyle]
+      : EYE_PATTERNS[eyeStyle]);
   const ew = eyePat[0].length, eh = eyePat.length;
   const eyeCols = { w: '#efe7d8', p: eyeC, d: shade(eyeC, -0.55) };
   const stampEye = (x0, y0, pat, mirror) => {
@@ -1150,13 +1163,13 @@ function generate(seed, ov){
   };
   // 眼距随脸宽缩放：宽脸眼距大、窄眼距小，都关于 cx 对称；整组五官带共享漂移
   const eyeCxC = cx + feaJit;
-  const eyeGap = rx <= 6 ? 1 : (rx <= 8 ? 2 : 3);
+  const eyeGap = Math.max(1, Math.round(rx * 0.22));
   const exR = eyeCxC + eyeGap + Math.max(0, 2 - ew);
   const exL = 2 * eyeCxC - exR - ew + 1;
   const dx = Math.round((exR + (ew - 1) / 2) - eyeCxC);
   const blink = dchance(0.05);
   // 眼尾倾斜度：0=平，1=外角上挑，-1=外角下垂；两眼镜像对称
-  const eyeTilt =([-1, 0, 0, 0, 1]);
+  const eyeTilt = dpick([-1, 0, 0, 0, 1]);
   stampEye(exL, eyeY, blink ? [['p', 'p']] : eyePat, false);
   stampEye(exR, eyeY, blink ? [['p', 'p']] : eyePat, false);
   if (!blink && eyeTilt !== 0){
@@ -1191,8 +1204,8 @@ function generate(seed, ov){
 
   // 鼻子：有漂移时鼻头随之偏移，显出"这人鼻子有点歪"的个体感
   const noseC = cx + feaJit;
-  const noseY = cy + 3;
-  const noseStyle =(0, 3);
+  const noseY = cy + Math.round(ry * 0.3);
+  const noseStyle = dri(0, 3);
   if (noseStyle === 0){
     g.set(noseC, noseY, skinD);
   } else if (noseStyle === 1){
@@ -1208,9 +1221,10 @@ function generate(seed, ov){
 
   // 嘴
   const mouthC = cx + feaJit;
-  const mouthY = cy + 6;
-  // 嘴宽：24 档固定 2px，48 档 2-4，96 档 5-7
-  const mw = size <= 24 ? 2 : (size >= 96 ?(5, 7) :(2, 4));
+  // 嘴的纵向位置随脸长：cy+6 是 48 档标准，其他档按脸长比例
+  const mouthY = cy + Math.round(ry * 0.55);
+  // 嘴宽随脸宽：24 档 2-3px，48 档 2-4，96 档 5-7
+  const mw = size <= 24 ? dri(2, 3) : (size >= 96 ? dri(5, 7) : dri(2, 4));
   // 口红只属于涂得起它的女性：按身份分档
   // 艳丽=贵族/商人妻；暗色=女巫/炼金术士/吟游诗人；素颜=贫苦与神职
   const LIP_RICH = ['noble', 'merchant'];
