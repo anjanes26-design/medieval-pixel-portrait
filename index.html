@@ -171,10 +171,9 @@
   .sizebox.main span{ color:var(--fg); font-weight:600; }
   #pvS{ width:96px; height:96px; }     /* 24 × 4 整数倍 */
   #pvM{ width:192px; height:192px; }   /* 48 × 4 整数倍 */
-  #pvL{ width:192px; height:192px; }   /* 96 × 2 整数倍 */
   @media (max-width:430px){
     #pvS{ width:72px; height:72px; }
-    #pvM, #pvL{ width:144px; height:144px; }
+    #pvM{ width:144px; height:144px; }
   }
 
   .recent{ display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
@@ -238,9 +237,8 @@
       <button id="toggleGrid" title="显示像素网格">网格</button>
     </div>
     <div class="sizes" id="sizes">
-      <div class="sizebox"><canvas id="pvS" width="24" height="24"></canvas><span>S · 24</span></div>
       <div class="sizebox main"><canvas id="pvM" width="48" height="48"></canvas><span>M · 48</span></div>
-      <div class="sizebox"><canvas id="pvL" width="96" height="96"></canvas><span>L · 96</span></div>
+      <div class="sizebox"><canvas id="pvS" width="24" height="24"></canvas><span>S · 24</span></div>
     </div>
     <div class="block" id="recentBlock">
       <div class="label">最近 RECENT</div>
@@ -282,7 +280,7 @@
    支持 24 / 48 / 96 三档：每档独立绘制，大图加细节、小图做减法
    ========================================================= */
 const W = 48, H = 48;      // 默认档
-const SIZES = { S: 24, M: 48, L: 96 };
+const SIZES = { S: 24, M: 48 };
 const OUTLINE = '#171120';
 
 /* ---------- 随机 ---------- */
@@ -814,26 +812,6 @@ function generate(seed, ov){
       else if (x <= cx - hw) c = clothL;
       if (detail && (x * 5 + y * 7) % 31 === 0) c = shade(c, -0.08);   // 亚麻织纹（24 档省略）
       g.set(x, y, c);
-    }
-  }
-
-  // 96 档专属：领口一圈织锦襟（yoke），代替全身撒点
-  if (size >= 96){
-    const patC = shade(trimC, -0.05);
-    const yoke0 = neckTop + 3, yoke1 = neckTop + 10;
-    const hwY = shirtHW(yoke0);
-    for (let y = yoke0; y <= yoke1; y++){
-      const t = (y - yoke0) / (yoke1 - yoke0);
-      const w = Math.round(hwY * (1 - t * 0.25));
-      // 沿领口弧线放菱形，间隔 6px，两肩对称
-      if ((y - yoke0) % 3 === 0){
-        for (const sgn of [-1, 1]){
-          const ox = cx + sgn * Math.round(w * 0.72);
-          g.set(ox, y, patC);
-          g.set(ox, y + 1, shade(patC, -0.2));
-          g.set(ox + sgn * 2, y + 1, patC);
-        }
-      }
     }
   }
 
@@ -1571,54 +1549,6 @@ function generate(seed, ov){
     }
   }
 
-  /* ---- 6.5 96 档专属：身份手持物（画在身体上、脸后，不进 48/24 档） ---- */
-  // cx/cy/shirtHW 已是当前档坐标，直接用；不经过 v() 二次缩放
-  if (size >= 96 && dchance(0.65)){
-    const prop =(arch.props || ['none']);
-    if (prop !== 'none'){
-      const handY = neckTop + 16;
-      const px = Math.min(size - 5, cx + Math.round(shirtHW(neckTop + 8) * 0.9));
-      const wood = '#8a6a40', woodD = '#4a3520', steel = '#c2c9d1', steelD = '#5e646c', gold = '#d9b043';
-      const pole = (x, y0, y1, c) => { for (let y = y0; y <= y1; y++){ g.set(x, y, shade(c, 0.12)); g.set(x + 1, y, c); g.set(x + 2, y, shade(c, -0.34)); } };
-      switch (prop){
-        case 'sword':
-          pole(px, cy - 8, handY, steel);
-          for (let x = px - 2; x <= px + 4; x++) g.set(x, handY + 1, gold);
-          for (let y = handY + 2; y <= handY + 5; y++){ g.set(px, y, woodD); g.set(px + 1, y, woodD); }
-          break;
-        case 'staff':
-          pole(px, cy - 12, size - 3, wood);
-          for (let y = cy - 20; y <= cy - 10; y++)
-            for (let x = px - 1; x <= px + 3; x++)
-              g.set(x, y, (x === px + 3 || y === cy - 20) ? '#8a6ad0' : '#b79cf0');
-          break;
-        case 'pitchfork':
-          pole(px, cy - 8, size - 3, wood);
-          for (let i = -1; i <= 1; i++) for (let y = cy - 24; y <= cy - 10; y++) g.set(px + 1 + i * 2, y, steelD);
-          break;
-        case 'broom':
-          pole(px, cy - 4, cy + 28, wood);
-          for (let y = cy + 29; y < size - 3; y++)
-            for (let x = px - 3; x <= px + 5; x++) g.set(x, y, ((x + y) % 2) ? '#9a8348' : '#c0a862');
-          break;
-        case 'book':
-          for (let y = neckTop + 8; y <= neckTop + 26; y++)
-            for (let x = cx - 6; x <= cx + 10; x++){
-              const edge = (x === cx - 6 || x === cx + 10 || y === neckTop + 8 || y === neckTop + 26);
-              g.set(x, y, edge ? '#5a2f38' : '#e6dcc2');
-            }
-          g.set(cx + 2, neckTop + 12, gold); g.set(cx + 4, neckTop + 14, gold);
-          break;
-        case 'basket':
-          for (let y = neckTop + 18; y <= neckTop + 34; y++){
-            const t = (y - neckTop - 18) / 16;
-            const w = Math.round(4 + t * 3);
-            for (let x = px - w; x <= px + w; x++) g.set(x, y, ((x + y) % 3 === 0) ? '#8a6a3a' : '#a8874c');
-          }
-          break;
-      }
-    }
-  }
 
   /* ---- 7. 描边 ---- */
   g.outline(OUTLINE);
@@ -1917,7 +1847,6 @@ function applyStaticText(){
 
   document.querySelector('#pvS').parentElement.querySelector('span').textContent = t('sizeS');
   document.querySelector('#pvM').parentElement.querySelector('span').textContent = t('sizeM');
-  document.querySelector('#pvL').parentElement.querySelector('span').textContent = t('sizeL');
 
   document.querySelector('#seedBlock .label').textContent = t('seedLabel');
   document.getElementById('apply').textContent = t('apply');
@@ -2099,13 +2028,11 @@ function show(seed, pushRecent, label){
   drawTo(view, px, 8);
   current = { seed, pixels: px, info: res.info };
 
-  // 三档同屏：同一人分别按 24/48/96 独立重绘
+  // 双档同屏：同一人分别按 24/48 独立重绘
   const resS = generate(seed, { ...lock, size: SIZES.S });
-  const resL = generate(seed, { ...lock, size: SIZES.L });
   drawTo(document.getElementById('pvS'), composite(resS), 4, SIZES.S);
   drawTo(document.getElementById('pvM'), px, 4, SIZES.M);
-  drawTo(document.getElementById('pvL'), composite(resL), 2, SIZES.L);
-  current.variants = { S: composite(resS), L: composite(resL) };
+  current.variants = { S: composite(resS) };
 
   renderProfile(res.info);
 
@@ -2245,11 +2172,11 @@ document.addEventListener('keydown', e => {
 });
 
 saveBtn.addEventListener('click', () => {
-  // 下载 96 档独立绘制版（细节最全），8× 放大到 768×768
+  // 下载当前主预览（48 档），8× 放大到 384×384
   const out = document.createElement('canvas');
-  drawTo(out, current.variants.L, 8, SIZES.L);
+  drawTo(out, current.pixels, 8, SIZES.M);
   const a = document.createElement('a');
-  a.download = `pixel-person-${current.seed}-96px.png`;
+  a.download = `pixel-person-${current.seed}.png`;
   a.href = out.toDataURL('image/png');
   a.click();
 });
